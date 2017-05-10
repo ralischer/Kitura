@@ -1,0 +1,23 @@
+//
+//  ConnectionHandler.swift
+//  K2Spike
+//
+//  Created by Samuel Kallner on 10/05/2017.
+//
+//
+
+import Foundation
+
+public typealias ConnectionWriter = (_ from: DispatchData) -> Void
+public typealias ConnectionCloser = () -> Void
+
+public protocol ConnectionHandler {
+    var connectionLitener: ConnectionListener? {get set}
+    var writeToConnection: ConnectionWriter? {get set}
+    var closeConnection: ConnectionCloser? {get set}
+    
+    var keepAliveUntil: TimeInterval? {get}
+    
+    func handle(bytes: UnsafePointer<Int8>!, length: Int) -> Int
+    func closed()
+}
