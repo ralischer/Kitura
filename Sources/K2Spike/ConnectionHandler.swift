@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Dispatch
 
 public typealias ConnectionWriter = (_ from: DispatchData) -> Void
 public typealias ConnectionCloser = () -> Void

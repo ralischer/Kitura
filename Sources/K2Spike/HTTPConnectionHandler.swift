@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Dispatch
 
 class HTTPConnectionHandler: ConnectionHandler {
     let parser: StreamingParser
