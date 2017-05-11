@@ -136,7 +136,7 @@ public class ConnectionListener {
                             if  self.readBuffer.length > 0  {
                                 let bytes = self.readBuffer.bytes.assumingMemoryBound(to: Int8.self) + self.readBufferPosition
                                 let length = self.readBuffer.length - self.readBufferPosition
-                                let numberParsed = self.connectionProcessor.handle(bytes: bytes, length: length)
+                                let numberParsed = self.connectionProcessor.process(bytes: bytes, length: length)
 
                                 self.readBufferPosition += numberParsed
                                 

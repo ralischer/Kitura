@@ -35,7 +35,7 @@ class HTTPConnectionProcessor: ConnectionProcessor {
         return parser.keepAliveUntil
     }
     
-    func handle(bytes: UnsafePointer<Int8>!, length: Int) -> Int {
+    func process(bytes: UnsafePointer<Int8>!, length: Int) -> Int {
         let (numberParsed, _) = self.parser.readStream(bytes: bytes, len: length)
         return numberParsed
     }

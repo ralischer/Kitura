@@ -19,6 +19,6 @@ public protocol ConnectionProcessor {
     
     var keepAliveUntil: TimeInterval? {get}
     
-    func handle(bytes: UnsafePointer<Int8>!, length: Int) -> Int
+    func process(bytes: UnsafePointer<Int8>!, length: Int) -> Int
     func connectionClosed()
 }
