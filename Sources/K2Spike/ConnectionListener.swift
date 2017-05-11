@@ -22,7 +22,7 @@ import Socket
 /// An HTTP server that listens for connections on a socket.
 public class ConnectionListener {
     var socket : Socket
-    var handler: ConnectionHandler
+    var connectionProcessor: ConnectionProcessor
 
     let socketReaderQueue: DispatchQueue
     let socketWriterQueue: DispatchQueue
@@ -38,14 +38,14 @@ public class ConnectionListener {
     // Timer that cleans up idle sockets on expire
     private var idleSocketTimer: DispatchSourceTimer?
 
-    public init(socket: Socket, handler: ConnectionHandler) {
+    public init(socket: Socket, connectionProcessor: ConnectionProcessor) {
         self.socket = socket
         socketReaderQueue = DispatchQueue(label: "Socket Reader \(socket.remotePort)")
         socketWriterQueue = DispatchQueue(label: "Socket Writer \(socket.remotePort)")
 
-        self.handler = handler
-        self.handler.closeConnection = self.closeWriter
-        self.handler.writeToConnection = self.queueSocketWrite
+        self.connectionProcessor = connectionProcessor
+        self.connectionProcessor.closeConnection = self.closeWriter
+        self.connectionProcessor.writeToConnection = self.queueSocketWrite
 
         idleSocketTimer = makeIdleSocketTimer()
     }
@@ -62,7 +62,7 @@ public class ConnectionListener {
 
     private func closeIdleSocket() {
         let now = Date().timeIntervalSinceReferenceDate
-        if let keepAliveUntil = handler.keepAliveUntil, now >= keepAliveUntil {
+        if let keepAliveUntil = connectionProcessor.keepAliveUntil, now >= keepAliveUntil {
             close()
         }
     }
@@ -80,7 +80,7 @@ public class ConnectionListener {
         self.readerSource?.cancel()
         self.writerSource?.cancel()
         self.socket.close()
-        self.handler.closed()
+        self.connectionProcessor.connectionClosed()
     }
     
     public func closeWriter() {
@@ -88,12 +88,12 @@ public class ConnectionListener {
         if let readerSource = self.readerSource {
             if readerSource.isCancelled {
                 self.socket.close()
-                self.handler.closed()
+                self.connectionProcessor.connectionClosed()
             }
         } else {
             //No reader source, we're good to close
             self.socket.close()
-            self.handler.closed()
+            self.connectionProcessor.connectionClosed()
         }
     }
     
@@ -102,12 +102,12 @@ public class ConnectionListener {
         if let writerSource = self.writerSource {
             if writerSource.isCancelled {
                 self.socket.close()
-                self.handler.closed()
+                self.connectionProcessor.connectionClosed()
             }
         } else {
             //No writer source, we're good to close
             self.socket.close()
-            self.handler.closed()
+            self.connectionProcessor.connectionClosed()
         }
     }
     
@@ -136,7 +136,7 @@ public class ConnectionListener {
                             if  self.readBuffer.length > 0  {
                                 let bytes = self.readBuffer.bytes.assumingMemoryBound(to: Int8.self) + self.readBufferPosition
                                 let length = self.readBuffer.length - self.readBufferPosition
-                                let numberParsed = self.handler.handle(bytes: bytes, length: length)
+                                let numberParsed = self.connectionProcessor.handle(bytes: bytes, length: length)
 
                                 self.readBufferPosition += numberParsed
                                 

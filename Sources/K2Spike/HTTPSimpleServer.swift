@@ -46,9 +46,8 @@ public class HTTPSimpleServer {
             repeat {
                 do {
                     let clientSocket = try self.serverSocket.acceptClientConnection()
-                    let streamingParser = StreamingParser(webapp: webapp)
-                    let connectionHandler = HTTPConnectionHandler(parser: streamingParser)
-                    let connectionListener = ConnectionListener(socket:clientSocket, handler: connectionHandler)
+                    let connectionProcessor = HTTPConnectionProcessor(webapp: webapp)
+                    let connectionListener = ConnectionListener(socket:clientSocket, connectionProcessor: connectionProcessor)
                     self.connectionListenerList.add(connectionListener)
                     DispatchQueue.global().async {
                         connectionListener.process()

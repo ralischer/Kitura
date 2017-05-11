@@ -9,7 +9,8 @@
 import Foundation
 import Dispatch
 
-class HTTPConnectionHandler: ConnectionHandler {
+class HTTPConnectionProcessor: ConnectionProcessor {
+    let webapp: WebApp
     let parser: StreamingParser
     
     weak var connectionLitener: ConnectionListener?
@@ -25,8 +26,9 @@ class HTTPConnectionHandler: ConnectionHandler {
         }
     }
     
-    init(parser: StreamingParser) {
-        self.parser = parser
+    init(webapp: @escaping WebApp) {
+        self.webapp = webapp
+        self.parser = StreamingParser(webapp: webapp)
     }
     
     var keepAliveUntil: TimeInterval? {
@@ -38,5 +40,5 @@ class HTTPConnectionHandler: ConnectionHandler {
         return numberParsed
     }
     
-    func closed() {}
+    func connectionClosed() {}
 }
