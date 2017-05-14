@@ -13,7 +13,7 @@ class HTTPConnectionProcessor: ConnectionProcessor {
     let webapp: WebApp
     let parser: StreamingParser
     
-    weak var connectionLitener: ConnectionListener?
+    weak var connectionListener: ConnectionListener?
     
     var writeToConnection: ConnectionWriter? {
         didSet {

@@ -13,7 +13,7 @@ public typealias ConnectionWriter = (_ from: DispatchData) -> Void
 public typealias ConnectionCloser = () -> Void
 
 public protocol ConnectionProcessor {
-    var connectionLitener: ConnectionListener? {get set}
+    var connectionListener: ConnectionListener? {get set}
     var writeToConnection: ConnectionWriter? {get set}
     var closeConnection: ConnectionCloser? {get set}
     

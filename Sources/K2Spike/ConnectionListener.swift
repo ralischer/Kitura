@@ -44,6 +44,7 @@ public class ConnectionListener {
         socketWriterQueue = DispatchQueue(label: "Socket Writer \(socket.remotePort)")
 
         self.connectionProcessor = connectionProcessor
+        self.connectionProcessor.connectionListener = self
         self.connectionProcessor.closeConnection = self.closeWriter
         self.connectionProcessor.writeToConnection = self.queueSocketWrite
 
