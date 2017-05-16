@@ -168,3 +168,8 @@ public enum HTTPPostProcessingStatus {
     case notApplicable
     case replace(res: HTTPResponseWriter)
 }
+
+public protocol ResponseCreating: class {
+    func serve(req: HTTPRequest, context: RequestContext, res: HTTPResponseWriter ) -> HTTPBodyProcessing
+}
+
