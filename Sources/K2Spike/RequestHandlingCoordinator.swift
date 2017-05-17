@@ -27,7 +27,16 @@ public class RequestHandlingCoordinator {
         
         let (proccessedReq, processedContext) = self.runPreProcessors(req: req, context: initialContext)
 
+        //FIXME: Handle Error case
+        let routeTuple = router.route(request: req)
+
         guard let routeTuple = router.route(request: req) else {
+//            return responseCreator.serve(request: proccessedReq, context: processedContext, response:runPostProcessors(req: proccessedReq, context: processedContext, res: res))
+//        }
+//        
+//        return WebAppFailureHandler().serve(request: proccessedReq, context: processedContext, response:runPostProcessors(req: proccessedReq, context: processedContext, res: res))
+
+        guard let handler = routeTuple?.1 else {
             // No response creator found
             // Handle failure
             return serveWithFailureHandler(request: proccessedReq, context: processedContext, response: res)
@@ -81,6 +90,9 @@ public class RequestHandlingCoordinator {
                                 res.done()
                             }
                         }
+
+                        // TODO
+                        // Write HTTPResponse
                     }
                     else {
                         res.writeResponse(HTTPResponse(httpVersion: req.httpVersion,
@@ -169,7 +181,7 @@ public enum HTTPPostProcessingStatus {
     case replace(res: HTTPResponseWriter)
 }
 
-public protocol ResponseCreating: class {
-    func serve(req: HTTPRequest, context: RequestContext, res: HTTPResponseWriter ) -> HTTPBodyProcessing
-}
+//public protocol ResponseCreating: class {
+//    func serve(request: HTTPRequest, context: RequestContext, response: HTTPResponseWriter) -> HTTPBodyProcessing
+//}
 
