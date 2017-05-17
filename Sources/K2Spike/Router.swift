@@ -120,11 +120,6 @@ public struct Router {
     }
 }
 
-//public protocol RequestStructParser {
-//    associatedtype T: Any
-//    func createStruct(path:String, queryParams:String?, Body:Data?) -> T?
-//}
-
 public struct RequestContext {
     let storage: [String: Any]
 
@@ -144,36 +139,3 @@ public struct RequestContext {
         return RequestContext(dict: newstorage)
     }
 }
-
-//public struct Router2 {
-//    var map: [Path: ResponseCreating]
-//
-//    public func route(request: HTTPRequest) -> (PathComponents, ResponseCreating)? {
-//        guard let verb = Verb(request.method) else {
-//            return nil
-//        }
-//
-//        //shortcut for exact match
-//        let exactPath = Path(path: request.target, verb: verb)
-//
-//        if let exactMatch = map[exactPath] {
-//            return (PathComponents(parameters:[:],queries:nil), exactMatch)
-//        }
-//
-//        for (path, creator) in map {
-//            guard verb == path.verb,
-//                let parser = URLParser(path: path.path),
-//                let components = parser.parse(request.target) else {
-//                    continue
-//            }
-//
-//            return (components, creator)
-//        }
-//        
-//        return nil
-//    }
-//    
-//    public init (map:[Path: ResponseCreating]) {
-//        self.map = map
-//    }
-//}

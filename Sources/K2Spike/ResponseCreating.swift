@@ -10,13 +10,6 @@ public protocol BodylessParameterResponseCreating {
     func serve(request: HTTPRequest, context: RequestContext, parameters: BodylessParameterContaining, response: HTTPResponseWriter) -> HTTPBodyProcessing
 }
 
-//extension ResponseCreatorChunked {
-//    @available(*, unavailable, message: "Use serve with parameters instead")
-//    func serve(request: HTTPRequest, context: RequestContext, response: HTTPResponseWriter) -> HTTPBodyProcessing {
-//        return .discardBody
-//    }
-//}
-
 public protocol ParameterResponseCreating {
     func serve(request: HTTPRequest, context: RequestContext, parameters: ParameterContaining, response: HTTPResponseWriter) -> (response: HTTPResponse, responseBody: ResponseObject)
 }

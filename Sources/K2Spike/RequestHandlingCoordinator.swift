@@ -27,7 +27,6 @@ public class RequestHandlingCoordinator {
         
         let (proccessedReq, processedContext) = self.runPreProcessors(req: req, context: initialContext)
 
-        //FIXME: Handle Error case
         let routeTuple = router.route(request: req)
 
         guard let routeTuple = router.route(request: req) else {
