@@ -15,15 +15,15 @@ extension String {
     }
 }
 
-public struct PathComponents {
+struct PathComponents {
     let parameters: [String: String]?
     let queries: [URLQueryItem]?
 }
 
-struct URLParser {
+struct URLParameterParser {
     var pathComponents: [String]
 
-    init?(path: String) {
+    init(path: String) {
         pathComponents = path.components(separatedBy: "/")
 
         if pathComponents.first == "" {
@@ -71,10 +71,11 @@ struct URLParser {
 }
 
 public struct Router {
+    // Enum wrapper around parameter type and corresponding response creator
     enum Handler {
-        case parseBody(PayloadParameterContaining.Type, ResponseCreatorStored)
+        case parseBody(ParameterContaining.Type, ParameterResponseCreating)
         case skipParameters(ResponseCreating)
-        case skipBody(ParameterContaining.Type, ResponseCreatorChunked)
+        case skipBody(BodylessParameterContaining.Type, BodylessParameterResponseCreating)
     }
 
     private var map: [Path: Handler] = [:]
@@ -85,16 +86,16 @@ public struct Router {
     }
 
     // Add a chunked response creator that requires parameter parsing, excluding the body
-    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ResponseCreatorChunked) {
+    public mutating func add(verb: Verb, path: String, parameterType: BodylessParameterContaining.Type, responseCreator: BodylessParameterResponseCreating) {
         map[Path(path: path, verb: verb)] = .skipBody(parameterType, responseCreator)
     }
 
     // Add a stored response creator that requires parameter parsing, including the body
-    public mutating func add(verb: Verb, path: String, parameterType: PayloadParameterContaining.Type, responseCreator: ResponseCreatorStored) {
+    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ParameterResponseCreating) {
         map[Path(path: path, verb: verb)] = .parseBody(parameterType, responseCreator)
     }
 
-    func route(request: HTTPRequest) -> (PathComponents?, Handler)? {
+    func route(request: HTTPRequest) -> (components: PathComponents?, handler: Handler)? {
         guard let verb = Verb(request.method) else {
             return nil
         }
@@ -108,8 +109,7 @@ public struct Router {
 
         for (path, match) in map {
             guard verb == path.verb,
-                let parser = URLParser(path: path.path),
-                let components = parser.parse(request.target) else {
+                let components = URLParameterParser(path: path.path).parse(request.target) else {
                     continue
             }
 

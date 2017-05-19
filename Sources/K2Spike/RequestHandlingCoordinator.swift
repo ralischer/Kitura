@@ -35,7 +35,7 @@ public class RequestHandlingCoordinator {
 //        
 //        return WebAppFailureHandler().serve(request: proccessedReq, context: processedContext, response:runPostProcessors(req: proccessedReq, context: processedContext, res: res))
 
-        guard let handler = routeTuple?.1 else {
+        guard let handler = routeTuple?.handler else {
             // No response creator found
             // Handle failure
             return serveWithFailureHandler(request: proccessedReq, context: processedContext, response: res)

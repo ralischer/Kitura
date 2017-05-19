@@ -10,6 +10,6 @@ public protocol BodylessParameterContaining {
 }
 
 // All parameter objects that require body inspection inheirt this
-public protocol PayloadParameterContaining {
-    init?(pathParameters: [String: String]?, queryParameters: [URLQueryItem]?, headers: HTTPHeaders, body: Data)
+public protocol ParameterContaining {
+    init?(pathParameters: [String: String]?, queryParameters: [URLQueryItem]?, headers: HTTPHeaders, body: DispatchData)
 }
