@@ -10,19 +10,19 @@ import Foundation
 
 import HTTPSketch
 
-public protocol ConnectionProcessorCreator {
+public protocol ConnectionProcessingCreating {
     var name: String {get}
     
-    func createConnectionProcessor(request: HTTPRequest, responseWriter: HTTPResponseWriter, webapp: WebApp) -> ConnectionProcessor?
+    func createConnectionProcessor(request: HTTPRequest, responseWriter: HTTPResponseWriter, webapp: WebApp) -> ConnectionProcessing?
 }
 
 
-public class ConnectionProcessorCreatorRegistry {
-    static let instance = ConnectionProcessorCreatorRegistry()
+public class ConnectionProcessingCreatingRegistry {
+    static let instance = ConnectionProcessingCreatingRegistry()
     
-    private(set) var registry = Dictionary<String, ConnectionProcessorCreator>()
+    private(set) var registry = Dictionary<String, ConnectionProcessingCreating>()
     
-    static public func register(creator: ConnectionProcessorCreator) {
+    static public func register(creator: ConnectionProcessingCreating) {
         instance.registry[creator.name.lowercased()] = creator
     }
     
@@ -31,7 +31,7 @@ public class ConnectionProcessorCreatorRegistry {
         return registry.count != 0
     }
     
-    /// Clear the `ConnectionProcessorCreator` registry. Used in testing.
+    /// Clear the `ConnectionProcessingCreating` registry. Used in testing.
     static func clear() {
         instance.registry.removeAll()
     }

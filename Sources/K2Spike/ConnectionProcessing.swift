@@ -11,7 +11,7 @@ import Dispatch
 
 import HTTPSketch
 
-public protocol ConnectionProcessor {
+public protocol ConnectionProcessing {
     var connectionListener: ConnectionListener? {get set}
     var parserConnector: ParserConnecting? {get set}
     
