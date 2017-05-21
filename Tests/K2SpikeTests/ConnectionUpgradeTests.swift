@@ -9,6 +9,8 @@
 import Foundation
 import XCTest
 
+import HTTPSketch
+
 import CHttpParser
 import HeliumLogger
 import Socket
@@ -44,12 +46,11 @@ class ConnectionUpgradeTests: XCTestCase {
             
             try socket.write(from: data)
             
-            let (rawParser, _) = processUpgradeResponse(socket: socket)
+            let (rawResponse, _) = processUpgradeResponse(socket: socket)
             
-            guard let parser = rawParser else { return }
+            guard let response = rawResponse else { return }
             
-            let statusCode = UInt(parser.httpParser.status_code)
-            XCTAssertEqual(statusCode, HTTPResponseStatus.ok.code, "The status code if the response wasn't \(HTTPResponseStatus.ok.code), it was \(statusCode)")
+            XCTAssertEqual(response.status, HTTPResponseStatus.ok, "The status code if the response wasn't \(HTTPResponseStatus.ok), it was \(response.status)")
             
             server.stop()
         } catch {
@@ -75,13 +76,11 @@ class ConnectionUpgradeTests: XCTestCase {
             
             guard let socket = self.sendUpgradeRequest(forProtocol: "Testing", on: server.port) else { return }
             
-            let (rawParser, _) = self.processUpgradeResponse(socket: socket)
+            let (rawResponse, _) = self.processUpgradeResponse(socket: socket)
             
-            guard let parser = rawParser else { return }
+            guard let response = rawResponse else { return }
             
-            let statusCode = UInt(parser.httpParser.status_code)
-            
-            XCTAssertEqual(statusCode, HTTPResponseStatus.switchingProtocols.code, "Returned status code on upgrade request was \(statusCode) and not \(HTTPResponseStatus.switchingProtocols.code)")
+            XCTAssertEqual(response.status, HTTPResponseStatus.switchingProtocols, "Returned status code on upgrade request was \(response.status) and not \(HTTPResponseStatus.switchingProtocols)")
             
             do {
                 try socket.write(from: NSData(bytes: ConnectionUpgradeTests.messageToProtocol, length: ConnectionUpgradeTests.messageToProtocol.count))
@@ -124,12 +123,11 @@ class ConnectionUpgradeTests: XCTestCase {
             
             guard let socket = self.sendUpgradeRequest(forProtocol: "testing123", on: server.port) else { return }
             
-            let (rawParser, _) = self.processUpgradeResponse(socket: socket)
+            let (rawResponse, _) = self.processUpgradeResponse(socket: socket)
             
-            guard let parser = rawParser else { return }
+            guard let response = rawResponse else { return }
             
-            let statusCode = UInt(parser.httpParser.status_code)
-            XCTAssertEqual(statusCode, HTTPResponseStatus.notFound.code, "Returned status code on upgrade request was \(statusCode) and not \(HTTPResponseStatus.notFound.code)")
+            XCTAssertEqual(response.status, HTTPResponseStatus.notFound, "Returned status code on upgrade request was \(response.status) and not \(HTTPResponseStatus.notFound)")
             
             server.stop()
         } catch {
@@ -160,51 +158,32 @@ class ConnectionUpgradeTests: XCTestCase {
         return socket
     }
     
-    private func processUpgradeResponse(socket: Socket) -> (StreamingParser?, NSData?) {
-        let parser = StreamingParser(webapp: upgradeTestsWebApp)
+    private func processUpgradeResponse(socket: Socket) -> (HTTPResponse?, Data?) {
+        var response: HTTPResponse?
+        var unparsedData: Data?
         
-        // Some hacks to get the StreamingParser to parse responses
-        http_parser_init(&parser.httpParser, HTTP_RESPONSE)
-        parser.httpParserSettings.on_body = {
-            (parser, chunk, length) -> Int32 in
-            guard let listener = StreamingParser.getSelf(parser: parser) else {
-                return Int32(0)
-            }
-            listener.lastCallBack = .bodyReceived
-            return Int32(0)
-        }
-        parser.httpParserSettings.on_message_complete = {
-            parser -> Int32 in
-            guard let listener = StreamingParser.getSelf(parser: parser) else {
-                return Int32(0)
-            }
-            listener.lastCallBack = .messageCompleted
-            return Int32(0)
-        }
-        
-        var unparsedData: NSData?
-        var errorFlag = false
+        let parser = StreamingResponseParser()
         
         var keepProcessing = true
         var notFoundEof = true
-        let buffer = NSMutableData()
+        var buffer = Data()
         var bufferPosition = 0
         
         do {
             while keepProcessing {
-                let count = try socket.read(into: buffer)
+                let count = try socket.read(into: &buffer)
                 
                 if notFoundEof {
-                    let bytes = buffer.bytes.assumingMemoryBound(to: Int8.self) + bufferPosition
-                    let length = buffer.length - bufferPosition
-                    let (numberParsed, _) = parser.readStream(bytes: bytes, len: length)
+                    let unprocessedDataRange: Range<Data.Index> = bufferPosition..<buffer.count
+                    let numberParsed = parser.readStream(data: buffer.subdata(in: unprocessedDataRange))
                     bufferPosition += numberParsed
                     
-                    if parser.lastCallBack == .messageCompleted {
+                    if parser.lastCallBack == .messageCompleted || parser.lastCallBack == .headersCompleted {
                         keepProcessing = false
-                        let bytesLeft = buffer.length - bufferPosition
-                        if bytesLeft != 0 {
-                            unparsedData = NSData(bytes: buffer.bytes+bufferPosition, length: bytesLeft)
+                        if bufferPosition != buffer.count {
+                            let unprocessedDataRange: Range<Data.Index> = bufferPosition..<buffer.count
+                            unparsedData = buffer.subdata(in: unprocessedDataRange)
+                            response = parser.createResponse()
                         }
                     }
                     else {
@@ -213,16 +192,14 @@ class ConnectionUpgradeTests: XCTestCase {
                 }
                 else {
                     keepProcessing = false
-                    errorFlag = true
                     XCTFail("Server closed socket prematurely")
                 }
             }
         }
         catch let error {
-            errorFlag = true
             XCTFail("Failed to receive upgrade response. Error=\(error)")
         }
-        return (errorFlag ? nil : parser, unparsedData)
+        return (response, unparsedData)
     }
     
     class TestingConnectionProcessorCreator: ConnectionProcessorCreator {
@@ -242,19 +219,18 @@ class ConnectionUpgradeTests: XCTestCase {
     
     class TestingConnectionProcessor: ConnectionProcessor {
         public weak var connectionListener: ConnectionListener?
-        public var writeToConnection: ConnectionWriter?
-        public var closeConnection: ConnectionCloser?
+        public var parserConnector: ParserConnecting?
         
         public var keepAliveUntil: TimeInterval? { return 60.0 }
         
-        public func process(bytes: UnsafePointer<Int8>!, length: Int) -> Int {
+        public func process(data: Data) -> Int {
             
-            XCTAssertEqual(length, ConnectionUpgradeTests.messageToProtocol.count, "Message received by testing protocol wasn't the correct length")
+            XCTAssertEqual(data.count, ConnectionUpgradeTests.messageToProtocol.count, "Message received by testing protocol wasn't the correct length")
             
-            let dataToWrite = DispatchData(bytes: UnsafeBufferPointer<UInt8>(start: ConnectionUpgradeTests.messageFromProtocol, count: ConnectionUpgradeTests.messageFromProtocol.count))
-            writeToConnection?(dataToWrite)
+            let dataToWrite = Data(bytes: ConnectionUpgradeTests.messageFromProtocol, count: ConnectionUpgradeTests.messageFromProtocol.count)
+            parserConnector?.queueSocketWrite(dataToWrite)
             
-            return length
+            return data.count
         }
         
         public func connectionClosed() {}
