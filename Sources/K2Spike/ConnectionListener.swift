@@ -17,59 +17,129 @@ import Socket
 #endif
 
 
+/// The Interface between the StreamingParser class and IBM's BlueSocket wrapper around socket(2).
 // MARK: HTTPServer
 
+/// You hopefully should be able to replace this with any network library/engine.
+public class ConnectionListener: ParserConnecting {
+    var socket: Socket?
+    var connectionProcessor: ConnectionProcessor?
 /// An HTTP server that listens for connections on a socket.
 public class ConnectionListener {
     var socket : Socket
     var connectionProcessor: ConnectionProcessor
 
+    
     let socketReaderQueue: DispatchQueue
+    ///Save the socket file descriptor so we can loook at it for debugging purposes
     let socketWriterQueue: DispatchQueue
     let readBuffer = NSMutableData()
+    var socketFD: Int32
     var readBufferPosition = 0
     
+    /// Queues for managing access to the socket without blocking the world
+    var socketReaderQueue: DispatchQueue?
     let writeBuffer = NSMutableData()
     var writeBufferPosition = 0
+    var socketWriterQueue: DispatchQueue?
     
+    ///Event handler for reading from the socket
     private var readerSource: DispatchSourceRead?
+    
+    ///Flag to track whether we're in the middle of a response or not (with lock)
+    private let _responseCompletedLock = DispatchSemaphore(value: 1)
     private var writerSource: DispatchSourceWrite?
+    private var _responseCompleted: Bool = false
+    var responseCompleted: Bool {
+        get {
+            _responseCompletedLock.wait()
+            defer {
+                _responseCompletedLock.signal()
+            }
+            return _responseCompleted
+        }
+        set {
+            _responseCompletedLock.wait()
+            defer {
+                _responseCompletedLock.signal()
+            }
+            _responseCompleted = newValue
+        }
+    }
+    
+    ///Flag to track whether we've received a socket error or not (with lock)
 
     // Timer that cleans up idle sockets on expire
-    private var idleSocketTimer: DispatchSourceTimer?
-
+    private let _errorOccurredLock = DispatchSemaphore(value: 1)
+    private var _errorOccurred: Bool = false
+    var errorOccurred: Bool {
+        get {
+            _errorOccurredLock.wait()
+            defer {
+                _errorOccurredLock.signal()
+            }
+            return _errorOccurred
+        }
+        set {
+            _errorOccurredLock.wait()
+            defer {
+                _errorOccurredLock.signal()
+            }
+            _errorOccurred = newValue
+        }
+    }
+    
+    
+    /// initializer
+    ///
+    /// - Parameters:
+    ///   - socket: Socket object from BlueSocket library wrapping a socket(2)
+    ///   - parser: Manager of the CHTTPParser library
     public init(socket: Socket, connectionProcessor: ConnectionProcessor) {
         self.socket = socket
+        socketFD = socket.socketfd
         socketReaderQueue = DispatchQueue(label: "Socket Reader \(socket.remotePort)")
         socketWriterQueue = DispatchQueue(label: "Socket Writer \(socket.remotePort)")
 
         self.connectionProcessor = connectionProcessor
-        self.connectionProcessor.connectionListener = self
+        self.connectionProcessor? .parserConnector = self
         self.connectionProcessor.closeConnection = self.closeWriter
         self.connectionProcessor.writeToConnection = self.queueSocketWrite
 
         idleSocketTimer = makeIdleSocketTimer()
     }
-
-    private func makeIdleSocketTimer() -> DispatchSourceTimer {
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "idleSocketTimer"))
-        timer.scheduleRepeating(deadline: .now(), interval: .seconds(Int(StreamingParser.keepAliveTimeout)))
-        timer.setEventHandler { [weak self] in
-            self?.closeIdleSocket()
+    
+    
+    /// Check if socket is still open. Used to decide whether it should be closed/pruned after timeout
+    public var isOpen: Bool {
+        guard let socket = self.socket else {
+            return false
         }
-        timer.resume()
+        return (socket.isActive || socket.isConnected)
         return timer
     }
-
-    private func closeIdleSocket() {
+    
+    
+    /// Close the socket and free up memory unless we're in the middle of a request
+    func close() {
         let now = Date().timeIntervalSinceReferenceDate
-        if let keepAliveUntil = connectionProcessor.keepAliveUntil, now >= keepAliveUntil {
-            close()
+        if !self.responseCompleted && !self.errorOccurred {
+            return
         }
-    }
-
-    deinit {
-        cleanupIdleSocketTimer()
+        self.readerSource?.cancel()
+        self.socket?.close()
+        self.connectionProcessor?.connectionClosed()
+        
+        //In a perfect world, we wouldn't have to clean this all up explicitly,
+        // but KDE/heaptrack informs us we're in far from a perfect world
+        self.readerSource?.setEventHandler(handler: nil)
+        self.readerSource?.setCancelHandler(handler: nil)
+        self.readerSource = nil
+        self.socket = nil
+        self.connectionProcessor?.parserConnector = nil //allows for memory to be reclaimed
+        self.connectionProcessor = nil
+        self.socketReaderQueue = nil
+        self.socketWriterQueue = nil
     }
 
     private func cleanupIdleSocketTimer() {
@@ -84,26 +154,32 @@ public class ConnectionListener {
         self.connectionProcessor.connectionClosed()
     }
     
+    /// Called by the parser to let us know that it's done with this socket
     public func closeWriter() {
-        self.writerSource?.cancel()
+        self.socketWriterQueue?.async { [weak self] in
         if let readerSource = self.readerSource {
-            if readerSource.isCancelled {
+            if (self?.readerSource?.isCancelled ?? true) {
                 self.socket.close()
-                self.connectionProcessor.connectionClosed()
+                self?.close()
             }
-        } else {
-            //No reader source, we're good to close
-            self.socket.close()
-            self.connectionProcessor.connectionClosed()
         }
     }
     
-    public func closeReader() {
-        self.readerSource?.cancel()
-        if let writerSource = self.writerSource {
-            if writerSource.isCancelled {
-                self.socket.close()
-                self.connectionProcessor.connectionClosed()
+    
+    /// Called by the parser to let us know that a response has started being created
+    public func responseBeginning() {
+        self.socketWriterQueue?.async { [weak self] in
+            self?.responseCompleted = false
+        }
+    }
+    
+    
+    /// Called by the parser to let us know that a response is complete, and we can close after timeout
+    public func responseComplete() {
+        self.socketWriterQueue?.async { [weak self] in
+            self?.responseCompleted = true
+            if (self?.readerSource?.isCancelled ?? true) {
+                self?.close()
             }
         } else {
             //No writer source, we're good to close
@@ -112,30 +188,44 @@ public class ConnectionListener {
         }
     }
     
+    
+    /// Starts reading from the socket and feeding that data to the parser
     public func process() {
         do {
-            try socket.setBlocking(mode: false)
+            try! socket?.setBlocking(mode: true)
             
-                readerSource = DispatchSource.makeReadSource(fileDescriptor: socket.socketfd,
-                                                                 queue: socketReaderQueue)
+            let tempReaderSource = DispatchSource.makeReadSource(fileDescriptor: socket?.socketfd ?? -1,
+                                                             queue: socketReaderQueue)
+            
+            tempReaderSource.setEventHandler { [weak self] in
                 
-                readerSource?.setEventHandler() {
+                guard let strongSelf = self else {
+                    return
+                }
+                guard strongSelf.socket?.socketfd ?? -1 > 0 else {
+                    self?.readerSource?.cancel()
+                    return
+                }
+                
+                var length = 1 //initial value
                     // The event handler gets called with readerSource.data == 0 continually even when there
-                    // is no incoming data. Till we figure out how to set the dispatch event mask to filter out
-                    // this condition, we just add a check for it.
-                    if self.readerSource?.data != 0 {
-                        guard self.socket.isConnected && self.socket.socketfd > -1 else {
-                            self.closeReader()
+                do {
+                    repeat {
+                        let readBuffer:NSMutableData = NSMutableData()
+                        length = try strongSelf.socket?.read(into: readBuffer) ?? -1
+                        if length > 0 {
+                            self?.responseCompleted = false
                             return
                         }
+                        let data = Data(bytes:readBuffer.bytes.assumingMemoryBound(to: Int8.self), count:readBuffer.length)
                         
-                        do {
+                        let numberParsed = strongSelf.connectionProcessor?.process(data: data) ?? 0
                             var length = 1
                             while  length > 0  {
                                 length = try self.socket.read(into: self.readBuffer)
                             }
-                            if  self.readBuffer.length > 0  {
-                                let bytes = self.readBuffer.bytes.assumingMemoryBound(to: Int8.self) + self.readBufferPosition
+                        if numberParsed != data.count {
+                            print("Error: wrong number of bytes consumed by parser (\(numberParsed) instead of \(data.count)")
                                 let length = self.readBuffer.length - self.readBufferPosition
                                 let numberParsed = self.connectionProcessor.process(bytes: bytes, length: length)
 
@@ -143,57 +233,62 @@ public class ConnectionListener {
                                 
                             }
                         }
-                        catch let error as Socket.Error {
-                            if error.errorCode == Int32(Socket.SOCKET_ERR_CONNECTION_RESET) {
-                                Log.debug("Read from socket (file descriptor \(self.socket.socketfd)) reset. Error = \(error).")
-                            } else {
-                                Log.error("Read from socket (file descriptor \(self.socket.socketfd)) failed. Error = \(error).")
-                            }
-                        } catch {
-                            Log.error("Unexpected error...")
-                        }
-                    }
+                        
+                    } while length > 0
+                } catch {
+                    print("ReaderSource Event Error: \(error)")
+                    self?.readerSource?.cancel()
+                    self?.errorOccurred = true
+                    self?.close()
                 }
-                readerSource?.setCancelHandler() {
-                    if self.socket.socketfd > -1 {
-                        self.closeReader()
-                    }
+                if (length == 0) {
+                    self?.readerSource?.cancel()
                 }
-                readerSource?.resume()
+                if (length < 0) {
+                    self?.errorOccurred = true
+                    self?.readerSource?.cancel()
+                    self?.close()
+                }
+            }
             
-        } catch let error {
-            Log.error("Error listening to client socket: \(error)")
+            tempReaderSource.setCancelHandler { [ weak self] in
+                self?.close() //close if we can
+            }
+            
+            self.readerSource = tempReaderSource
+            self.readerSource?.resume()
         }
         
     }
     
     
-    func queueSocketWrite(from bytes: DispatchData) {
+    /// Called by the parser to give us data to send back out of the socket
         if Log.isLogging(.debug) {
-            let byteDataToPrint = Data(bytes)
+    ///
+    /// - Parameter bytes: Data object to be queued to be written to the socket
             let byteStringToPrint = String(data:byteDataToPrint, encoding:.utf8)
             if let byteStringToPrint = byteStringToPrint {
-                Log.debug("\(#function) called with '\(byteStringToPrint)'")
+    public func queueSocketWrite(_ bytes: Data) {
             } else {
-                Log.debug("\(#function) called with UNPRINTABLE")
+        self.socketWriterQueue?.async { [ weak self ] in
             }
         }
         self.socketWriterQueue.async {
             bytes.withUnsafeBytes { (ptr: UnsafePointer<UInt8>) in
-                self.socketWrite(from: ptr, length: bytes.count)
+            self?.write(bytes)
             }
         }
     }
-
-    func socketWrite(from bytes: UnsafeRawPointer, length: Int) {
-        if Log.isLogging(.debug) {
+    
+    
+    /// Write data to a socket. Should be called in an `async` block on the `socketWriterQueue`
             if length > 0 {
-                let byteDataToPrint = Data(bytes:bytes, count:length)
-                let byteStringToPrint = String(data:byteDataToPrint, encoding:.utf8)
+    ///
+    /// - Parameter data: data to be written
                 if let byteStringToPrint = byteStringToPrint {
                     Log.debug("\(#function) called with '\(byteStringToPrint)' to \(length)")
                 } else {
-                    Log.debug("\(#function) called with UNPRINTABLE")
+    public func write(_ data:Data) {
                 }
             } else {
                 Log.debug("\(#function) called empty")
@@ -207,9 +302,10 @@ public class ConnectionListener {
         }
         
         do {
-            let written: Int
+            var written: Int = 0
+            var offset = 0
             
-            if  writeBuffer.length == 0 {
+            while written < data.count && !errorOccurred {
                 written = try socket.write(from: bytes, bufSize: length)
             }
             else {
@@ -217,7 +313,7 @@ public class ConnectionListener {
             }
             
             if written != length {
-                self.writeBuffer.append(bytes + written, length: length - written)
+                try data.withUnsafeBytes { (ptr: UnsafePointer<UInt8>) in
                 
                 if writerSource == nil {
                     writerSource = DispatchSource.makeWriteSource(fileDescriptor: socket.socketfd,
@@ -240,23 +336,23 @@ public class ConnectionListener {
                             }
                             
                             do {
-                                let amountToWrite = self.writeBuffer.length - self.writeBufferPosition
+                    let result = try socket?.write(from: ptr + offset, bufSize:
                                 
                                 let written: Int
                                 
                                 if amountToWrite > 0 {
                                     written = try self.socket.write(from: self.writeBuffer.bytes + self.writeBufferPosition,
                                                                     bufSize: amountToWrite)
-                                }
+                        data.count - offset) ?? -1
                                 else {
-                                    if amountToWrite < 0 {
-                                        Log.error("Amount of bytes to write to file descriptor \(self.socket.socketfd) was negative \(amountToWrite)")
-                                    }
+                    if (result < 0) {
+                        print("Recived broken write socket indication")
+                        errorOccurred = true
                                     
                                     written = amountToWrite
-                                }
+                    } else {
                                 
-                                if written != amountToWrite {
+                        written += result
                                     self.writeBufferPosition += written
                                 }
                                 else {
@@ -285,14 +381,19 @@ public class ConnectionListener {
                     }
                     writerSource!.resume()
                 }
+                offset = data.count - written
             }
-        }
+            if (errorOccurred) {
         catch let error {
             if let error = error as? Socket.Error, error.errorCode == Int32(Socket.SOCKET_ERR_CONNECTION_RESET) {
-                Log.debug("Write to socket (file descriptor \(socket.socketfd)) failed. Error = \(error).")
+                close()
             } else {
-                Log.error("Write to socket (file descriptor \(socket.socketfd)) failed. Error = \(error).")
+                return
             }
+        } catch {
+            print("Recived write socket error: \(error)")
+            errorOccurred = true
+            close()
         }
     }
 

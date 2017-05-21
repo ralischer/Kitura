@@ -8,21 +8,17 @@
 
 import Foundation
 import Dispatch
+import HTTPSketch
 
 class HTTPConnectionProcessor: ConnectionProcessor {
     let webapp: WebApp
     let parser: StreamingParser
     
-    weak var connectionListener: ConnectionListener?
+    public weak var connectionListener: ConnectionListener?
     
-    var writeToConnection: ConnectionWriter? {
+    public var parserConnector: ParserConnecting?  {
         didSet {
-            parser.writeToConnection = writeToConnection
-        }
-    }
-    var closeConnection: ConnectionCloser? {
-        didSet {
-            parser.closeConnection = closeConnection
+            parser.parserConnector = parserConnector
         }
     }
     
@@ -31,13 +27,9 @@ class HTTPConnectionProcessor: ConnectionProcessor {
         self.parser = StreamingParser(webapp: webapp)
     }
     
-    var keepAliveUntil: TimeInterval? {
-        return parser.keepAliveUntil
-    }
-    
-    func process(bytes: UnsafePointer<Int8>!, length: Int) -> Int {
-        let (numberParsed, isUpgradeRequested) = self.parser.readStream(bytes: bytes, len: length)
-        if isUpgradeRequested {
+    func process(data: Data) -> Int {
+        let numberParsed = parser.readStream(data: data)
+        if parser.upgradeRequested {
             upgradeConnection()
         }
         return numberParsed
@@ -57,6 +49,7 @@ class HTTPConnectionProcessor: ConnectionProcessor {
             parser.writeResponse(response)
             parser.writeBody(data: body)
             parser.done()
+            parserConnector?.responseComplete()
             
             return
         }
@@ -76,8 +69,7 @@ class HTTPConnectionProcessor: ConnectionProcessor {
         
         if !notFound {
             if let connectionListener = connectionListener, let unwrappedConnectionProcessor = connectionProcessor {
-                connectionProcessor?.closeConnection = closeConnection
-                connectionProcessor?.writeToConnection = writeToConnection
+                connectionProcessor?.parserConnector = parserConnector
                 connectionListener.connectionProcessor = unwrappedConnectionProcessor
             }
         }
@@ -90,5 +82,6 @@ class HTTPConnectionProcessor: ConnectionProcessor {
             parser.writeBody(data: body)
             parser.done()
         }
+        parserConnector?.responseComplete()
     }
 }
