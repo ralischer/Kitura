@@ -59,14 +59,14 @@ class ConnectionUpgradeTests: XCTestCase {
     }
     
     func testNoRegistrations() {
-        ConnectionProcessorCreatorRegistry.clear()
+        ConnectionProcessingCreatingRegistry.clear()
         
         unregisteredProtocolHelper()
     }
     
     func testSuccessfullUpgrade() {
-        ConnectionProcessorCreatorRegistry.clear()
-        ConnectionProcessorCreatorRegistry.register(creator: TestingConnectionProcessorCreator())
+        ConnectionProcessingCreatingRegistry.clear()
+        ConnectionProcessingCreatingRegistry.register(creator: TestingConnectionProcessorCreator())
         
         HeliumLogger.use(.info)
         
@@ -108,8 +108,8 @@ class ConnectionUpgradeTests: XCTestCase {
     }
     
     func testWrongRegistration() {
-        ConnectionProcessorCreatorRegistry.clear()
-        ConnectionProcessorCreatorRegistry.register(creator: TestingConnectionProcessorCreator())
+        ConnectionProcessingCreatingRegistry.clear()
+        ConnectionProcessingCreatingRegistry.register(creator: TestingConnectionProcessorCreator())
         
         unregisteredProtocolHelper()
     }
@@ -202,10 +202,10 @@ class ConnectionUpgradeTests: XCTestCase {
         return (response, unparsedData)
     }
     
-    class TestingConnectionProcessorCreator: ConnectionProcessorCreator {
+    class TestingConnectionProcessorCreator: ConnectionProcessingCreating {
         public var name = "Testing"
         
-        public func createConnectionProcessor(request: HTTPRequest, responseWriter: HTTPResponseWriter, webapp: WebApp) -> ConnectionProcessor? {
+        public func createConnectionProcessor(request: HTTPRequest, responseWriter: HTTPResponseWriter, webapp: WebApp) -> ConnectionProcessing? {
             
             let response = HTTPResponse(httpVersion: (1, 1), status: HTTPResponseStatus.switchingProtocols,
                                         transferEncoding: .identity(contentLength: UInt(0)),
@@ -217,7 +217,7 @@ class ConnectionUpgradeTests: XCTestCase {
         }
     }
     
-    class TestingConnectionProcessor: ConnectionProcessor {
+    class TestingConnectionProcessor: ConnectionProcessing {
         public weak var connectionListener: ConnectionListener?
         public var parserConnector: ParserConnecting?
         

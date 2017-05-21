@@ -23,7 +23,7 @@ import Socket
 /// You hopefully should be able to replace this with any network library/engine.
 public class ConnectionListener: ParserConnecting {
     var socket: Socket?
-    var connectionProcessor: ConnectionProcessor?
+    var connectionProcessor: ConnectionProcessing?
 /// An HTTP server that listens for connections on a socket.
 public class ConnectionListener {
     var socket : Socket
@@ -95,7 +95,7 @@ public class ConnectionListener {
     /// - Parameters:
     ///   - socket: Socket object from BlueSocket library wrapping a socket(2)
     ///   - parser: Manager of the CHTTPParser library
-    public init(socket: Socket, connectionProcessor: ConnectionProcessor) {
+    public init(socket: Socket, connectionProcessor: ConnectionProcessing) {
         self.socket = socket
         socketFD = socket.socketfd
         socketReaderQueue = DispatchQueue(label: "Socket Reader \(socket.remotePort)")

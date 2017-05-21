@@ -10,7 +10,7 @@ import Foundation
 import Dispatch
 import HTTPSketch
 
-class HTTPConnectionProcessor: ConnectionProcessor {
+class HTTPConnectionProcessor: ConnectionProcessing {
     let webapp: WebApp
     let parser: StreamingParser
     
@@ -56,8 +56,8 @@ class HTTPConnectionProcessor: ConnectionProcessor {
         
         var notFound = true
         let protocolList = protocols.split(separator: ",")
-        let registry = ConnectionProcessorCreatorRegistry.instance.registry
-        var connectionProcessor: ConnectionProcessor?
+        let registry = ConnectionProcessingCreatingRegistry.instance.registry
+        var connectionProcessor: ConnectionProcessing?
         for eachProtocol in protocolList {
             let theProtocol = eachProtocol.first?.trimmingCharacters(in: CharacterSet.whitespaces) ?? ""
             if theProtocol.characters.count != 0, let creator = registry[theProtocol.lowercased()] {
