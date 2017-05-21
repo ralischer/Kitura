@@ -8,6 +8,8 @@
 
 import Foundation
 
+import HTTPSketch
+
 public protocol ConnectionProcessorCreator {
     var name: String {get}
     

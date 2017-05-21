@@ -9,16 +9,12 @@
 import Foundation
 import Dispatch
 
-public typealias ConnectionWriter = (_ from: DispatchData) -> Void
-public typealias ConnectionCloser = () -> Void
+import HTTPSketch
 
 public protocol ConnectionProcessor {
     var connectionListener: ConnectionListener? {get set}
-    var writeToConnection: ConnectionWriter? {get set}
-    var closeConnection: ConnectionCloser? {get set}
+    var parserConnector: ParserConnecting? {get set}
     
-    var keepAliveUntil: TimeInterval? {get}
-    
-    func process(bytes: UnsafePointer<Int8>!, length: Int) -> Int
+    func process(data: Data) -> Int
     func connectionClosed()
 }
