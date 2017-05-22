@@ -68,9 +68,10 @@ class HTTPConnectionProcessor: ConnectionProcessing {
         }
         
         if !notFound {
-            if let connectionListener = connectionListener, let unwrappedConnectionProcessor = connectionProcessor {
+            if let connectionListener = connectionListener, var unwrappedConnectionProcessor = connectionProcessor {
                 connectionProcessor?.parserConnector = parserConnector
                 connectionListener.connectionProcessor = unwrappedConnectionProcessor
+                unwrappedConnectionProcessor.connectionListener = self.connectionListener
             }
         }
         else {

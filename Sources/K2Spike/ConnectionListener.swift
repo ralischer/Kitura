@@ -102,8 +102,8 @@ public class ConnectionListener {
         socketWriterQueue = DispatchQueue(label: "Socket Writer \(socket.remotePort)")
 
         self.connectionProcessor = connectionProcessor
-        self.connectionProcessor? .parserConnector = self
-        self.connectionProcessor.closeConnection = self.closeWriter
+        self.connectionProcessor?.parserConnector = self
+        self.connectionProcessor?.connectionListener = self
         self.connectionProcessor.writeToConnection = self.queueSocketWrite
 
         idleSocketTimer = makeIdleSocketTimer()
@@ -137,6 +137,7 @@ public class ConnectionListener {
         self.readerSource = nil
         self.socket = nil
         self.connectionProcessor?.parserConnector = nil //allows for memory to be reclaimed
+        self.connectionProcessor?.connectionListener = nil //allows for memory to be reclaimed
         self.connectionProcessor = nil
         self.socketReaderQueue = nil
         self.socketWriterQueue = nil
