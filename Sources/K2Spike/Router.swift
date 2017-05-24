@@ -13,7 +13,7 @@ extension String {
         }
 
         // Drop first and last characters
-        return self[self.index(after: self.startIndex)..<self.index(before: self.endIndex)]
+        return String(self[self.index(after: self.startIndex)..<self.index(before: self.endIndex)])
     }
 }
 
@@ -195,7 +195,9 @@ public struct RequestContext {
     
     public func adding(dict:[String:Any]) -> RequestContext {
         var newstorage = storage
-        dict.forEach{ newstorage[$0] = $1 }
+        for d in dict {
+            newstorage[d.key] = d.value
+        }
         return RequestContext(dict: newstorage)
     }
 }
