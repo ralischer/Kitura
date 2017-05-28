@@ -21,6 +21,7 @@ class ConnectionUpgradeTests: XCTestCase {
     static var allTests = [
         ("testMissingUpgradeHeader", testMissingUpgradeHeader),
         ("testNoRegistrations", testNoRegistrations),
+        ("testSuccessfullUpgrade", testSuccessfullUpgrade),
         ("testWrongRegistration", testWrongRegistration)
     ]
     
@@ -31,6 +32,11 @@ class ConnectionUpgradeTests: XCTestCase {
         HeliumLogger.use(.info)
         
         let server = HTTPSimpleServer()
+        
+        defer {
+            server.stop()
+        }
+        
         do {
             try server.start(port: 0, webapp: upgradeTestsWebApp)
             
@@ -51,8 +57,6 @@ class ConnectionUpgradeTests: XCTestCase {
             guard let response = rawResponse else { return }
             
             XCTAssertEqual(response.status, HTTPResponseStatus.ok, "The status code if the response wasn't \(HTTPResponseStatus.ok), it was \(response.status)")
-            
-            server.stop()
         } catch {
             XCTFail("Error listening on port \(0): \(error). Use server.failed(callback:) to handle")
         }
@@ -71,6 +75,11 @@ class ConnectionUpgradeTests: XCTestCase {
         HeliumLogger.use(.info)
         
         let server = HTTPSimpleServer()
+        
+        defer {
+            server.stop()
+        }
+        
         do {
             try server.start(port: 0, webapp: upgradeTestsWebApp)
             
@@ -100,8 +109,6 @@ class ConnectionUpgradeTests: XCTestCase {
             catch {
                 XCTFail("Failed to receive message from TestingProtocol. Error=\(error)")
             }
-            
-            server.stop()
         } catch {
             XCTFail("Error listening on port \(0): \(error). Use server.failed(callback:) to handle")
         }
@@ -118,6 +125,11 @@ class ConnectionUpgradeTests: XCTestCase {
         HeliumLogger.use(.info)
         
         let server = HTTPSimpleServer()
+        
+        defer {
+            server.stop()
+        }
+        
         do {
             try server.start(port: 0, webapp: upgradeTestsWebApp)
             
@@ -128,8 +140,6 @@ class ConnectionUpgradeTests: XCTestCase {
             guard let response = rawResponse else { return }
             
             XCTAssertEqual(response.status, HTTPResponseStatus.notFound, "Returned status code on upgrade request was \(response.status) and not \(HTTPResponseStatus.notFound)")
-            
-            server.stop()
         } catch {
             XCTFail("Error listening on port \(0): \(error). Use server.failed(callback:) to handle")
         }
@@ -224,6 +234,9 @@ class ConnectionUpgradeTests: XCTestCase {
         public var keepAliveUntil: TimeInterval? { return 60.0 }
         
         public func process(data: Data) -> Int {
+            if data.count == 0 {
+                return 0
+            }
             
             XCTAssertEqual(data.count, ConnectionUpgradeTests.messageToProtocol.count, "Message received by testing protocol wasn't the correct length")
             
