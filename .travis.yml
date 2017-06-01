@@ -30,4 +30,5 @@ matrix:
       sudo: required
 
 script:
+  - set -x
   - ./build.sh
