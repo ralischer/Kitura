@@ -54,7 +54,7 @@ class K2SpikeTests: XCTestCase {
         var router = Router()
         router.add(verb: .GET, path: "/helloworld", responseCreator: HelloWorldWebApp())
         let coordinator = RequestHandlingCoordinator.init(router: router)
-        let server = BlueSocketSimpleServer()
+        let server = HTTPSimpleServer()
 
         do {
             try server.start(port: 0, webapp: coordinator.handle)
@@ -89,7 +89,7 @@ class K2SpikeTests: XCTestCase {
         var router = Router()
         router.add(verb: .POST, path: "/echo", responseCreator: EchoWebApp())
         let coordinator = RequestHandlingCoordinator(router: router)
-        let server = BlueSocketSimpleServer()
+        let server = HTTPSimpleServer()
 
         do {
             try server.start(port: 0, webapp: coordinator.handle)
@@ -133,7 +133,7 @@ class K2SpikeTests: XCTestCase {
         var router = Router()
         router.add(verb: .POST, path: "/echo", responseCreator: EchoWebApp())
         let coordinator = RequestHandlingCoordinator(router: router)
-        let server = BlueSocketSimpleServer()
+        let server = HTTPSimpleServer()
 
         do {
             try server.start(port: 0, webapp: coordinator.handle)
@@ -235,7 +235,7 @@ class K2SpikeTests: XCTestCase {
         var router = Router()
         router.add(verb: .POST, path: "/echo", responseCreator: EchoWebApp())
         let coordinator = RequestHandlingCoordinator(router: router)
-        let server = BlueSocketSimpleServer()
+        let server = HTTPSimpleServer()
 
         do {
             try server.start(port: 0, webapp: coordinator.handle)
@@ -276,8 +276,8 @@ class K2SpikeTests: XCTestCase {
         router.add(verb: .GET, path: "/uuid", responseCreator: UUIDGeneratorWebApp())
         let uuidCoordinator = RequestHandlingCoordinator(router: router)
         
-        let helloWorldServer = BlueSocketSimpleServer()
-        let uuidServer = BlueSocketSimpleServer()
+        let helloWorldServer = HTTPSimpleServer()
+        let uuidServer = HTTPSimpleServer()
         do {
             try uuidServer.start(port: 0, webapp: uuidCoordinator.handle)
             let urlForUUID = URL(string: "http://localhost:\(uuidServer.port)/uuid")!

@@ -22,9 +22,13 @@ class HTTPConnectionProcessor: ConnectionProcessing {
         }
     }
     
-    init(webapp: @escaping WebApp) {
+    public var keepAliveUntil: TimeInterval? {
+        return parser.keepAliveUntil
+    }
+    
+    init(webapp: @escaping WebApp, connectionCounter: CurrentConnectionCounting) {
         self.webapp = webapp
-        self.parser = StreamingParser(webapp: webapp)
+        self.parser = StreamingParser(webapp: webapp, connectionCounter: connectionCounter)
     }
     
     func process(data: Data) -> Int {

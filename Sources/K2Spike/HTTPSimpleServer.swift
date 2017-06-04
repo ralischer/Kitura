@@ -22,8 +22,8 @@ import Socket
 
 // MARK: HTTPServer
 
-/// An HTTP server that listens for connections on a socket.
-public class HTTPSimpleServer {
+/// An HTTP server that listens for connections on a TCP socket and spawns Listeners to handle them.
+public class HTTPSimpleServer : CurrentConnectionCounting {
     
     
     /// Socket to listen on for connections
@@ -34,7 +34,6 @@ public class HTTPSimpleServer {
     
     // Timer that cleans up idle sockets on expire
     private let pruneSocketTimer: DispatchSourceTimer
-    
     
     /// The port we're listening on. Used primarily to query a randomly assigned port during XCTests
     public var port: Int {
@@ -68,11 +67,24 @@ public class HTTPSimpleServer {
         pruneSocketTimer.scheduleRepeating(deadline: .now() + StreamingParser.keepAliveTimeout, interval: .seconds(Int(StreamingParser.keepAliveTimeout)))
         pruneSocketTimer.resume()
         
+        let queueMax = 4
+        
+        var readQueues = [DispatchQueue]()
+        var writeQueues = [DispatchQueue]()
+        
+        for i in 0..<queueMax {
+            readQueues.append(DispatchQueue(label: "Read Queue \(i)"))
+            writeQueues.append(DispatchQueue(label: "Write Queue \(i)"))
+        }
+        
+        var listenerCount = 0
         DispatchQueue.global().async {
             repeat {
                 do {
                     let clientSocket = try self.serverSocket.acceptClientConnection()
-                    let connectionProcessor = HTTPConnectionProcessor(webapp: webapp)
+                    let connectionProcessor = HTTPConnectionProcessor(webapp: webapp, connectionCounter: self)
+                    let readQueue = readQueues[listenerCount % queueMax]
+                    let writeQueue = writeQueues[listenerCount % queueMax]
                     let listener = ConnectionListener(socket:clientSocket, connectionProcessor: connectionProcessor)
                     self.connectionListenerList.add(connectionListener)
                     DispatchQueue.global().async { [weak listener] in
@@ -97,7 +109,7 @@ public class HTTPSimpleServer {
     
     
     /// Count the connections - can be used in XCTests
-    internal var connectionCount: Int {
+    public var connectionCount: Int {
         return connectionListenerList.count
     }
     
@@ -135,9 +147,10 @@ class ConnectionListenerCollection {
         storage.filter { nil != $0.value }.forEach { $0.value?.close() }
     }
     
-    /// Remove any weak pointers to closed (and freed) sockets from the collection
+    /// Close any idle sockets and remove any weak pointers to closed (and freed) sockets from the collection
     func prune() {
         lock.wait()
+        storage.filter { nil != $0.value }.forEach { $0.value?.closeIfIdleSocket() }
         storage = storage.filter { nil != $0.value }.filter { $0.value?.isOpen ?? false}
         lock.signal()
     }

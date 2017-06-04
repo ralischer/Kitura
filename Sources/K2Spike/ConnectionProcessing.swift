@@ -15,6 +15,8 @@ public protocol ConnectionProcessing {
     var connectionListener: ConnectionListener? {get set}
     var parserConnector: ParserConnecting? {get set}
     
+    var keepAliveUntil: TimeInterval? { get }
+    
     func process(data: Data) -> Int
     func connectionClosed()
 }
