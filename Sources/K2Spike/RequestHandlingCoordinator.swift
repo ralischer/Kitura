@@ -25,29 +25,45 @@ public class RequestHandlingCoordinator {
         
         let initialContext = RequestContext()
         
-        let (proccessedReq, processedContext) = self.runPreProcessors(req: req, context: initialContext)
+        let (proccessedReq, processedContext) = self.runPreProcessors(req: req,
+                                                                      context: initialContext)
 
         guard let routeTuple = router.route(request: req) else {
             // No response creator found
             // Handle failure
-            return serveWithFailureHandler(request: proccessedReq, context: processedContext, response: res)
+            return serveWithFailureHandler(request: proccessedReq,
+                                           context: processedContext,
+                                           response: res)
         }
 
         switch routeTuple.handler {
         case .skipParameters(let responseCreator):
             // No parameter parsing needed
             // Serve content
-            return responseCreator.serve(request: proccessedReq, context: processedContext, response:runPostProcessors(req: proccessedReq, context: processedContext, res: res))
+            return responseCreator.serve(request: proccessedReq,
+                                         context: processedContext,
+                                         response:runPostProcessors(req: proccessedReq,
+                                                                    context: processedContext,
+                                                                    res: res))
         case .skipBody(let parameterType, let responseCreator):
             // Step 1:
             // Generate parameter object
-            guard let parameters = parameterType.init(pathParameters: routeTuple.components?.parameters, queryParameters: routeTuple.components?.queries, headers: proccessedReq.headers) else {
-                return serveWithFailureHandler(request: proccessedReq, context: processedContext, response: res)
+            guard let parameters = parameterType.init(pathParameters: routeTuple.components?.parameters,
+                                                      queryParameters: routeTuple.components?.queries,
+                                                      headers: proccessedReq.headers) else {
+                return serveWithFailureHandler(request: proccessedReq,
+                                               context: processedContext,
+                                               response: res)
             }
 
             // Step 2:
             // Serve content using parameters
-            return responseCreator.serve(request: proccessedReq, context: processedContext, parameters: parameters, response: runPostProcessors(req: proccessedReq, context: processedContext, res: res))
+            return responseCreator.serve(request: proccessedReq,
+                                         context: processedContext,
+                                         parameters: parameters,
+                                         response: runPostProcessors(req: proccessedReq,
+                                                                     context: processedContext,
+                                                                     res: res))
         case .parseBody(let parameterType, let responseCreator):
             var body = DispatchData.empty
 
@@ -65,10 +81,15 @@ public class RequestHandlingCoordinator {
                 case .end:
                     // Step 2:
                     // Generate parameter object
-                    if let parameters = parameterType.init(pathParameters: routeTuple.components?.parameters, queryParameters: routeTuple.components?.queries, headers: proccessedReq.headers, body: body) {
+                    if let parameters = parameterType.init(pathParameters: routeTuple.components?.parameters,
+                                                           queryParameters: routeTuple.components?.queries,
+                                                           headers: proccessedReq.headers, body: body) {
                         // Step 3:
                         // Get response object from serving content using parameters
                         let (response, responseObject) = responseCreator.serve(request: proccessedReq, context: processedContext, parameters: parameters, response: res)
+                                                                   context: processedContext,
+                                                                   parameters: parameters,
+                                                                   response: res)
 
                         // Step 4:
                         // Write response
