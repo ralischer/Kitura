@@ -20,7 +20,7 @@ import Foundation
 import Dispatch
 
 import CHttpParser
-import HTTPSketch
+import SwiftServerHttp
 
 /// Class that wraps the CHTTPParser and calls the `WebApp` to get the response
 class StreamingResponseParser {
@@ -201,7 +201,7 @@ class StreamingResponseParser {
     func createResponse() -> HTTPResponse {
         let parsedHTTPVersion = (Int(httpParser.http_major), Int(httpParser.http_minor))
         let rawStatusCode = httpParser.status_code
-        let statusCode = HTTPResponseStatus.from(code: UInt(rawStatusCode)) ?? HTTPResponseStatus.serviceUnavailable
+        let statusCode = HTTPResponseStatus.from(code: UInt16(rawStatusCode)) ?? HTTPResponseStatus.serviceUnavailable
         
         return HTTPResponse(httpVersion: parsedHTTPVersion, status: statusCode,
                             transferEncoding: .chunked,     headers: parsedHeaders)
