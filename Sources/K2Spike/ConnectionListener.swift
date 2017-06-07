@@ -9,6 +9,7 @@
 import Foundation
 
 import LoggerAPI
+import SwiftServerHttp
 import Socket
 
 #if os(Linux)
@@ -209,14 +210,14 @@ public class ConnectionListener {
                     // The event handler gets called with readerSource.data == 0 continually even when there
                 do {
                     repeat {
-                        let readBuffer:NSMutableData = NSMutableData()
+                        if strongSelf.socket?.socketfd ?? -1 > 0 {
                         length = try strongSelf.socket?.read(into: readBuffer) ?? -1
                         if length > 0 {
                             self?.responseCompleted = false
                             return
-                        }
+                            let readBuffer:NSMutableData = NSMutableData()
                         let data = Data(bytes:readBuffer.bytes.assumingMemoryBound(to: Int8.self), count:readBuffer.length)
-                        
+                            length = try strongSelf.socket?.read(into: readBuffer) ?? -1
                         let numberParsed = strongSelf.connectionProcessor?.process(data: data) ?? 0
                             var length = 1
                             while  length > 0  {
@@ -226,10 +227,19 @@ public class ConnectionListener {
                             print("Error: wrong number of bytes consumed by parser (\(numberParsed) instead of \(data.count)")
                                 let length = self.readBuffer.length - self.readBufferPosition
                                 let numberParsed = self.connectionProcessor.process(bytes: bytes, length: length)
+                            let data = Data(bytes:readBuffer.bytes.assumingMemoryBound(to: Int8.self), count:readBuffer.length)
+                            
+                            let numberParsed = strongSelf.connectionProcessor?.process(data: data) ?? 0
+                            
 
                                 self.readBufferPosition += numberParsed
                                 
+                            if numberParsed != data.count {
+                                print("Error: wrong number of bytes consumed by parser (\(numberParsed) instead of \(data.count)")
                             }
+                        } else {
+                            print("bad socket FD while reading")
+                            length = -1
                         }
                         
                     } while length > 0
@@ -248,7 +258,9 @@ public class ConnectionListener {
             }
             
             tempReaderSource.setCancelHandler { [ weak self] in
-                self?.socket?.close()
+                if (self?.socket?.socketfd ?? -1) > 0 {
+                    self?.socket?.close()
+                }
                 self?.connectionProcessor?.connectionClosed()
                 
                 //In a perfect world, we wouldn't have to clean this all up explicitly,

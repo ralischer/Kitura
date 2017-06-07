@@ -10,6 +10,7 @@ import Dispatch
 import Foundation
 
 import LoggerAPI
+import SwiftServerHttp
 
 import Socket
 
@@ -40,6 +41,12 @@ public class HTTPSimpleServer : CurrentConnectionCounting {
         return Int(serverSocket.listeningPort)
     }
     
+    /// Tuning parameter to set the number of queues
+    private var queueMax: Int
+    
+    /// Tuning parameter to set the number of sockets we can accept at one time
+    private var acceptMax: Int
+    
     public init() {
         #if os(Linux)
             Signals.trap(signal: .pipe) {
@@ -50,6 +57,8 @@ public class HTTPSimpleServer : CurrentConnectionCounting {
                 
         serverSocket = try! Socket.create()
         pruneSocketTimer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "pruneSocketTimer"))
+        queueMax = 4 //sensible default
+        acceptMax = 8 //sensible default
     }
     
     
@@ -59,23 +68,33 @@ public class HTTPSimpleServer : CurrentConnectionCounting {
     ///   - port: TCP port. See listen(2)
     ///   - webapp: Function that creates the HTTP Response from the HTTP Request
     /// - Throws: Error (usually a socket error) generated
-    public func start(port: Int = 0, webapp: @escaping WebApp) throws {
+    public func start(port: Int = 0, queueCount: Int = 0, acceptCount: Int = 0, webapp: @escaping WebApp) throws {
+        if queueCount > 0 {
+            queueMax = queueCount
+        }
+        if acceptCount > 0 {
+            acceptMax = acceptCount
+        }
         try self.serverSocket.listen(on: port, maxBacklogSize: 100)
+        
         pruneSocketTimer.setEventHandler { [weak self] in
             self?.connectionListenerList.prune()
         }
         pruneSocketTimer.scheduleRepeating(deadline: .now() + StreamingParser.keepAliveTimeout, interval: .seconds(Int(StreamingParser.keepAliveTimeout)))
         pruneSocketTimer.resume()
         
-        let queueMax = 4
-        
         var readQueues = [DispatchQueue]()
         var writeQueues = [DispatchQueue]()
+        let acceptQueue = DispatchQueue(label: "Accept Queue", qos: .default, attributes: .concurrent)
+        
+        let acceptSemaphore = DispatchSemaphore.init(value: acceptMax)
         
         for i in 0..<queueMax {
             readQueues.append(DispatchQueue(label: "Read Queue \(i)"))
             writeQueues.append(DispatchQueue(label: "Write Queue \(i)"))
         }
+        
+        print ("Started server on port \(self.serverSocket.listeningPort) with \(self.queueMax) Serial Queues of each type and \(self.acceptMax) accept sockets")
         
         var listenerCount = 0
         DispatchQueue.global().async {
@@ -83,12 +102,14 @@ public class HTTPSimpleServer : CurrentConnectionCounting {
                 do {
                     let clientSocket = try self.serverSocket.acceptClientConnection()
                     let connectionProcessor = HTTPConnectionProcessor(webapp: webapp, connectionCounter: self)
-                    let readQueue = readQueues[listenerCount % queueMax]
-                    let writeQueue = writeQueues[listenerCount % queueMax]
-                    let listener = ConnectionListener(socket:clientSocket, connectionProcessor: connectionProcessor)
-                    self.connectionListenerList.add(connectionListener)
-                    DispatchQueue.global().async { [weak listener] in
+                    let readQueue = readQueues[listenerCount % self.queueMax]
+                    let writeQueue = writeQueues[listenerCount % self.queueMax]
+                    let listener = ConnectionListener(socket:clientSocket, connectionProcessor: connectionProcessor, readQueue:readQueue, writeQueue: writeQueue)
+                    listenerCount += 1
+                    acceptSemaphore.wait()
+                    acceptQueue.async { [weak listener] in
                         listener?.process()
+                        acceptSemaphore.signal()
                     }
                     self.connectionListenerList.add(listener)
                 
