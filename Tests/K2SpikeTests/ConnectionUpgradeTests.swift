@@ -9,7 +9,7 @@
 import Foundation
 import XCTest
 
-import HTTPSketch
+import SwiftServerHttp
 
 import CHttpParser
 import HeliumLogger
@@ -57,6 +57,42 @@ class ConnectionUpgradeTests: XCTestCase {
             guard let response = rawResponse else { return }
             
             XCTAssertEqual(response.status, HTTPResponseStatus.ok, "The status code if the response wasn't \(HTTPResponseStatus.ok), it was \(response.status)")
+        } catch {
+            XCTFail("Error listening on port \(0): \(error). Use server.failed(callback:) to handle")
+        }
+    }
+    
+    func testExtraUpgradeHeader() {
+        HeliumLogger.use(.info)
+        
+        let server = HTTPSimpleServer()
+        
+        defer {
+            server.stop()
+        }
+        
+        do {
+            try server.start(port: 0, webapp: upgradeTestsWebApp)
+            
+            let socket = try Socket.create()
+            try socket.connect(to: "localhost", port: Int32(server.port))
+            
+            let request = "GET /test/upgrade HTTP/1.1\r\n" +
+                "Host: localhost:\(server.port)\r\n" +
+                "Connection: Upgrade\r\n" +
+                "Upgrade: test123\r\n" +
+                "Upgrade: test123\r\n" +
+                "\r\n"
+            
+            guard let data = request.data(using: .utf8) else { return }
+            
+            try socket.write(from: data)
+            
+            let (rawResponse, _) = processUpgradeResponse(socket: socket)
+            
+            guard let response = rawResponse else { return }
+            
+            XCTAssertEqual(response.status, HTTPResponseStatus.badRequest, "The status code if the response wasn't \(HTTPResponseStatus.badRequest), it was \(response.status)")
         } catch {
             XCTFail("Error listening on port \(0): \(error). Use server.failed(callback:) to handle")
         }
@@ -182,19 +218,19 @@ class ConnectionUpgradeTests: XCTestCase {
         do {
             while keepProcessing {
                 let count = try socket.read(into: &buffer)
-                
+
                 if notFoundEof {
                     let unprocessedDataRange: Range<Data.Index> = bufferPosition..<buffer.count
                     let numberParsed = parser.readStream(data: buffer.subdata(in: unprocessedDataRange))
                     bufferPosition += numberParsed
-                    
+
                     if parser.lastCallBack == .messageCompleted || parser.lastCallBack == .headersCompleted {
                         keepProcessing = false
                         if bufferPosition != buffer.count {
                             let unprocessedDataRange: Range<Data.Index> = bufferPosition..<buffer.count
                             unparsedData = buffer.subdata(in: unprocessedDataRange)
-                            response = parser.createResponse()
                         }
+                        response = parser.createResponse()
                     }
                     else {
                         notFoundEof = count != 0
