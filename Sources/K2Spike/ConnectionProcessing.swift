@@ -9,7 +9,7 @@
 import Foundation
 import Dispatch
 
-import HTTPSketch
+import SwiftServerHttp
 
 public protocol ConnectionProcessing {
     var connectionListener: ConnectionListener? {get set}

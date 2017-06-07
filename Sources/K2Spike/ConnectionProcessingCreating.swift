@@ -8,7 +8,7 @@
 
 import Foundation
 
-import HTTPSketch
+import SwiftServerHttp
 
 public protocol ConnectionProcessingCreating {
     var name: String {get}
