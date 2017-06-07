@@ -6,4 +6,5 @@ XCTMain([
     testCase(RouterTests.allTests),
     testCase(ParameterParsingTests.allTests),
     testCase(FileServerTests.allTests)
+    testCase(ConnectionUpgradeTests.allTests)
 ])
