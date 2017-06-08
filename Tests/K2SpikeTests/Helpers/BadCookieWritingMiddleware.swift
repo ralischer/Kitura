@@ -98,7 +98,7 @@ class BadCookieWritingMiddleware {
         
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US")
-        dateFormatter.timeZone = TimeZone(identifier: "GMT")!
+        dateFormatter.timeZone = TimeZone.current
         dateFormatter.dateFormat = "E, dd MMM yyyy HH:mm:ss z"
         let cookieDate = Date(timeIntervalSinceNow: 3600)
         
