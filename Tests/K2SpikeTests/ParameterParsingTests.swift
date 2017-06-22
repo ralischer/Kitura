@@ -30,10 +30,7 @@ class ParameterParsingTests: XCTestCase {
         case .processBody(let handler):
             var stop = false
             let body = "hello=world"
-
-            // Use Swift's implicit String -> UnsafePointer<UInt8> conversion to generate
-            // UnsafeBufferPointer<UInt8>
-            let bufferedPointer = UnsafeBufferPointer<UInt8>(start: body, count: body.lengthOfBytes(using: .utf8))
+            let bufferedPointer = UnsafeRawBufferPointer(start: body, count: body.lengthOfBytes(using: .utf8))
             let dispatchData = DispatchData(bytes: bufferedPointer)
 
             handler(.chunk(data: dispatchData, finishedProcessing: {}), &stop)

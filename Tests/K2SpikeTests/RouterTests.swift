@@ -36,7 +36,7 @@ class RouterTests: XCTestCase {
             return
         }
 
-        XCTAssert(components?.parameters?["id"] == "123")
+        XCTAssertEqual(components?.parameters?["id"], "123")
         XCTAssertNotNil(components?.queries)
     }
 }

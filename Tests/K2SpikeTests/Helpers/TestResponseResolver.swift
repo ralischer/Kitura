@@ -22,7 +22,7 @@ class TestResponseResolver: HTTPResponseWriter {
     init(request: HTTPRequest, requestBody: Data) {
         self.request = request
         self.requestBody = requestBody.withUnsafeBytes { (ptr: UnsafePointer<UInt8>) -> DispatchData in
-            DispatchData(bytes: UnsafeBufferPointer<UInt8>(start: ptr, count: requestBody.count))
+            DispatchData(bytes: UnsafeRawBufferPointer(start: ptr, count: requestBody.count))
         }
     }
     
