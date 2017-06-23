@@ -7,24 +7,27 @@
 //
 
 import Foundation
-import Dispatch
 import SwiftServerHttp
 
+#if os(Linux)
+    import Dispatch
+#endif
+
 public class RequestHandlingCoordinator {
-    
+
     let router: Router
-    
+
     private var preProcessors : [HTTPPreProcessing] = []
     private var postProcessors : [HTTPPostProcessing] = []
-    
+
     public init(router: Router) {
         self.router = router
     }
 
     public func handle(req: HTTPRequest, res: HTTPResponseWriter) -> HTTPBodyProcessing {
-        
+
         let initialContext = RequestContext()
-        
+
         let (proccessedReq, processedContext) = self.runPreProcessors(req: req, context: initialContext)
 
         guard let routeTuple = router.route(request: req) else {
@@ -99,20 +102,20 @@ public class RequestHandlingCoordinator {
             return fileServer.serve(request: proccessedReq, context: processedContext, filePath: routeTuple.components?.restOfURL ?? "/", response: runPostProcessors(req: proccessedReq, context: processedContext, res: res))
         }
     }
-    
+
     public func addPreProcessor(_ preprocessor: @escaping HTTPPreProcessing) {
         self.preProcessors.append(preprocessor)
     }
-    
+
     public func addPostProcessor(_ postprocessor: @escaping HTTPPostProcessing) {
         self.postProcessors.append(postprocessor)
     }
-    
+
     private func runPreProcessors(req: HTTPRequest, context cntx: RequestContext) -> (HTTPRequest, RequestContext) {
         var request = req
         var context = cntx
         let processorBlockComplete = DispatchSemaphore(value: 0)
-        
+
         for preProcessor in self.preProcessors {
             let tmp = preProcessor(request, context) { (newReq, newCntx) in
                 request = newReq
@@ -129,13 +132,13 @@ public class RequestHandlingCoordinator {
                 processorBlockComplete.wait()
             }
         }
-        
+
         return (request, context)
     }
-    
+
     private func runPostProcessors (req: HTTPRequest, context: RequestContext, res: HTTPResponseWriter) -> HTTPResponseWriter {
         var responseWriter = res
-        
+
         for postProcessor in postProcessors {
             let result = postProcessor(req, context, responseWriter)
             switch result {
@@ -145,7 +148,7 @@ public class RequestHandlingCoordinator {
                 break
             }
         }
-        
+
         return responseWriter
     }
 

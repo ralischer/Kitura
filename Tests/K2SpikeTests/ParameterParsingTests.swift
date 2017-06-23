@@ -2,6 +2,10 @@ import XCTest
 @testable import SwiftServerHttp
 @testable import K2Spike
 
+#if os(Linux)
+    import Dispatch
+#endif
+
 class ParameterParsingTests: XCTestCase {
     static var allTests = [
         ("testBodylessParameterParsing", testBodylessParameterParsing),
@@ -52,7 +56,7 @@ struct NoBodyParameters: BodylessParameterContaining {
     init?(pathParameters: [String : String]?, queryParameters: [URLQueryItem]?, headers: HTTPHeaders) {
         guard let pathParam = pathParameters?["hello"],
             let queryParam = queryParameters?.filter({ $0.name == "hello" }) else {
-            return nil
+                return nil
         }
 
         self.pathParam = pathParam
@@ -112,9 +116,9 @@ struct WithBodyResponse: ParameterResponseCreating {
             XCTFail("Wrong parameter type")
 
             let httpResponse = HTTPResponse(httpVersion: request.httpVersion,
-                                        status: .badRequest,
-                                        transferEncoding: .chunked,
-                                        headers: HTTPHeaders())
+                                            status: .badRequest,
+                                            transferEncoding: .chunked,
+                                            headers: HTTPHeaders())
 
             return (response: httpResponse, responseBody: Response(body: "Error"))
         }
@@ -127,9 +131,9 @@ struct WithBodyResponse: ParameterResponseCreating {
         XCTAssert(parameters.body == "hello=world")
 
         let httpResponse = HTTPResponse(httpVersion: request.httpVersion,
-                                    status: .ok,
-                                    transferEncoding: .chunked,
-                                    headers: HTTPHeaders())
+                                        status: .ok,
+                                        transferEncoding: .chunked,
+                                        headers: HTTPHeaders())
         return (response: httpResponse, responseBody: Response(body: "Pass"))
     }
 }
