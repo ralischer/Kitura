@@ -117,37 +117,40 @@ public struct Router {
         case serveFile(FileServer)
     }
 
-    private var handlers: [Path: Handler] = [:]
+    private var handlers: [Path: (handler: Handler, security: SecurityOptions?)] = [:]
+    private let security: SecurityOptions?
 
-    private var fileServer: (path: String, handler: FileServer)?
+    private var fileServer: (path: String, handler: FileServer, security: SecurityOptions?)?
 
-    public init() {}
+    public init(security: SecurityOptions? = nil) {
+        self.security = security
+    }
 
     // Add a response creator that doesn't require any parameter parsing
-    public mutating func add(verb: Verb, path: String, responseCreator: ResponseCreating) {
-        handlers[Path(path: path, verb: verb)] = .skipParameters(responseCreator)
+    public mutating func add(verb: Verb, path: String, responseCreator: ResponseCreating, security: SecurityOptions? = nil) {
+        handlers[Path(path: path, verb: verb)] = (.skipParameters(responseCreator), security)
     }
 
     // Add a chunked response creator that requires parameter parsing,
     // excluding the body
-    public mutating func add(verb: Verb, path: String, parameterType: BodylessParameterContaining.Type, responseCreator: BodylessParameterResponseCreating) {
-        handlers[Path(path: path, verb: verb)] = .skipBody(parameterType, responseCreator)
+    public mutating func add(verb: Verb, path: String, parameterType: BodylessParameterContaining.Type, responseCreator: BodylessParameterResponseCreating, security: SecurityOptions? = nil) {
+        handlers[Path(path: path, verb: verb)] = (.skipBody(parameterType, responseCreator), security)
     }
 
     // Add a stored response creator that requires parameter parsing,
     // including the body
-    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ParameterResponseCreating) {
-        handlers[Path(path: path, verb: verb)] = .parseBody(parameterType, responseCreator)
+    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ParameterResponseCreating, security: SecurityOptions? = nil) {
+        handlers[Path(path: path, verb: verb)] = (.parseBody(parameterType, responseCreator), security)
     }
 
     // Set a file server that is used when no other defined path match
     // the request URL
-    public mutating func setDefaultFileServer(_ fileServer: FileServer, atPath: String) {
-        self.fileServer = (atPath, fileServer)
+    public mutating func setDefaultFileServer(_ fileServer: FileServer, atPath: String, security: SecurityOptions? = nil) {
+        self.fileServer = (atPath, fileServer, security)
     }
 
     // Given an HTTPRequest, find the request handler
-    func route(request: HTTPRequest) -> (components: PathComponents?, handler: Handler)? {
+    func route(request: HTTPRequest) -> (components: PathComponents?, handler: Handler, security: SecurityOptions?)? {
         guard let verb = Verb(request.method) else {
             // Unsupported method
             return nil
@@ -157,14 +160,14 @@ public struct Router {
         let exactPath = Path(path: request.target, verb: verb)
 
         if let exactMatch = handlers[exactPath] {
-            return (nil, exactMatch)
+            return (nil, exactMatch.handler, exactMatch.security ?? security)
         }
 
         // Search map of routes for a matching handler
         for (path, match) in handlers {
             if verb == path.verb,
                 let components = URLParameterParser(path: path.path).parse(request.target) {
-                    return (components, match)
+                    return (components, match.handler, match.security ?? security)
             }
         }
 
@@ -173,7 +176,7 @@ public struct Router {
         if let fileServer = fileServer,
             let components = URLParameterParser(path: fileServer.path, partialMatch: true).parse(request.target) {
             // File server matches
-            return (components, .serveFile(fileServer.handler))
+            return (components, .serveFile(fileServer.handler), fileServer.security ?? security)
         }
 
         return nil

@@ -25,12 +25,21 @@ public class RequestHandlingCoordinator {
         
         let initialContext = RequestContext()
         
-        let (proccessedReq, processedContext) = self.runPreProcessors(req: req, context: initialContext)
+        var (proccessedReq, processedContext) = self.runPreProcessors(req: req, context: initialContext)
 
-        guard let routeTuple = router.route(request: req) else {
+        guard let routeTuple = router.route(request: proccessedReq) else {
             // No response creator found
             // Handle failure
             return serveWithFailureHandler(request: proccessedReq, context: processedContext, response: res)
+        }
+
+        if let securityOptions = routeTuple.security {
+            switch securityOptions.security.process(request: proccessedReq, context: processedContext, scopes: securityOptions.scopes) {
+            case .proceed(let secureContext):
+                processedContext = secureContext
+            case .securityResponse(let secureContext, let responseCreator):
+                return responseCreator.serve(request: proccessedReq, context: secureContext, response:runPostProcessors(req: proccessedReq, context: secureContext, res: res))
+            }
         }
 
         switch routeTuple.handler {

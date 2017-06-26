@@ -1,4 +1,5 @@
 import XCTest
+import Dispatch
 @testable import SwiftServerHttp
 @testable import K2Spike
 

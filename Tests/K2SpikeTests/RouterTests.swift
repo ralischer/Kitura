@@ -14,7 +14,7 @@ class RouterTests: XCTestCase {
         router.add(verb: .GET, path: "/foobar", responseCreator: resCreator)
         let request = HTTPRequest(method: .GET, target: "/foobar?foo=bar&hello=world", httpVersion: (1, 1), headers: HTTPHeaders())
 
-        guard let (components, _) = router.route(request: request) else {
+        guard let (components, _, _) = router.route(request: request) else {
             XCTFail("No match found")
 
             return
@@ -30,7 +30,7 @@ class RouterTests: XCTestCase {
         router.add(verb: .GET, path: "/users/{id}", responseCreator: resCreator)
         let request = HTTPRequest(method: .GET, target: "/users/123?foo=bar&hello=world", httpVersion: (1, 1), headers: HTTPHeaders())
 
-        guard let (components, _) = router.route(request: request) else {
+        guard let (components, _, _) = router.route(request: request) else {
             XCTFail("No match found")
 
             return
