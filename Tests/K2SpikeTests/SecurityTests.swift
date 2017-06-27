@@ -64,7 +64,7 @@ class SecurityTests: XCTestCase {
                 return .forbidden
             }
         }
-        let setContext: Security.SetContext = { context, info in
+        let setContext: SecurityScheme.SetContext = { context, info in
             return context.adding(dict: [SecurityTestWebApp.contextKey: info])
         }
 
@@ -72,7 +72,7 @@ class SecurityTests: XCTestCase {
 
         let path = "/testBasicAuth"
         var router = Router()
-        router.add(verb: .GET, path: path, responseCreator: SecurityTestWebApp(), security: SecurityOptions(.basic(basicAuth)))
+        router.add(verb: .GET, path: path, responseCreator: SecurityTestWebApp(), security: Security(.basic(basicAuth)))
 
         let request = HTTPRequest(method: .GET, target: path, httpVersion: (1, 1), headers: requestHeaders)
         let resolver = TestResponseResolver(request: request, requestBody: Data())
@@ -97,14 +97,14 @@ class SecurityTests: XCTestCase {
                 return .forbidden
             }
         }
-        let setContext: Security.SetContext = { context, info in
+        let setContext: SecurityScheme.SetContext = { context, info in
             return context.adding(dict: [SecurityTestWebApp.contextKey: info])
         }
 
         let apiKey = APIKey(name: apiKeyName, location: location, authorize: authorize, setContext: setContext)
 
         let path = "/testAPIKey"
-        var router = Router(security: SecurityOptions(.apiKey(apiKey)))
+        var router = Router(security: Security(.apiKey(apiKey)))
         router.add(verb: .GET, path: path, responseCreator: SecurityTestWebApp())
 
         let target: String
@@ -176,7 +176,7 @@ class SecurityTests: XCTestCase {
                 }
             }
 
-            let setContext: Security.SetContext = { context, info in
+            let setContext: SecurityScheme.SetContext = { context, info in
                 return context.adding(dict: [SecurityTestWebApp.contextKey: info])
             }
 
@@ -189,7 +189,7 @@ class SecurityTests: XCTestCase {
             let pathWithQuery = path + "?q1=x,y&q2=x:y&q3=x/y"
 
             let webapp = SecurityTestWebApp()
-            var router = Router(security: SecurityOptions(.oauth2(oauth2), scopes: scopes))
+            var router = Router(security: Security(.oauth2(oauth2), scopes: scopes))
             router.add(verb: .GET, path: path, responseCreator: webapp)
             router.add(verb: .GET, path: redirectPath, responseCreator: webapp)
             let coordinator = RequestHandlingCoordinator(router: router)

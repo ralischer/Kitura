@@ -117,40 +117,40 @@ public struct Router {
         case serveFile(FileServer)
     }
 
-    private var handlers: [Path: (handler: Handler, security: SecurityOptions?)] = [:]
-    private let security: SecurityOptions?
+    private var handlers: [Path: (handler: Handler, security: Security?)] = [:]
+    private let security: Security?
 
-    private var fileServer: (path: String, handler: FileServer, security: SecurityOptions?)?
+    private var fileServer: (path: String, handler: FileServer, security: Security?)?
 
-    public init(security: SecurityOptions? = nil) {
+    public init(security: Security? = nil) {
         self.security = security
     }
 
     // Add a response creator that doesn't require any parameter parsing
-    public mutating func add(verb: Verb, path: String, responseCreator: ResponseCreating, security: SecurityOptions? = nil) {
+    public mutating func add(verb: Verb, path: String, responseCreator: ResponseCreating, security: Security? = nil) {
         handlers[Path(path: path, verb: verb)] = (.skipParameters(responseCreator), security)
     }
 
     // Add a chunked response creator that requires parameter parsing,
     // excluding the body
-    public mutating func add(verb: Verb, path: String, parameterType: BodylessParameterContaining.Type, responseCreator: BodylessParameterResponseCreating, security: SecurityOptions? = nil) {
+    public mutating func add(verb: Verb, path: String, parameterType: BodylessParameterContaining.Type, responseCreator: BodylessParameterResponseCreating, security: Security? = nil) {
         handlers[Path(path: path, verb: verb)] = (.skipBody(parameterType, responseCreator), security)
     }
 
     // Add a stored response creator that requires parameter parsing,
     // including the body
-    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ParameterResponseCreating, security: SecurityOptions? = nil) {
+    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ParameterResponseCreating, security: Security? = nil) {
         handlers[Path(path: path, verb: verb)] = (.parseBody(parameterType, responseCreator), security)
     }
 
     // Set a file server that is used when no other defined path match
     // the request URL
-    public mutating func setDefaultFileServer(_ fileServer: FileServer, atPath: String, security: SecurityOptions? = nil) {
+    public mutating func setDefaultFileServer(_ fileServer: FileServer, atPath: String, security: Security? = nil) {
         self.fileServer = (atPath, fileServer, security)
     }
 
     // Given an HTTPRequest, find the request handler
-    func route(request: HTTPRequest) -> (components: PathComponents?, handler: Handler, security: SecurityOptions?)? {
+    func route(request: HTTPRequest) -> (components: PathComponents?, handler: Handler, security: Security?)? {
         guard let verb = Verb(request.method) else {
             // Unsupported method
             return nil

@@ -7,7 +7,7 @@ protocol SecurityProtocol {
     func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult
 }
 
-public enum Security: SecurityProtocol {
+public enum SecurityScheme: SecurityProtocol {
     public typealias SetContext = (RequestContext, String) -> RequestContext
 
     case basic(BasicAuth)
@@ -37,38 +37,58 @@ public enum Authorization {
     case forbidden
 }
 
-public struct SecurityOptions {
-    private let schemes: [[(security: Security, scopes: [String])]]
+public struct SecurityRequirement: Sequence {
+    private let schemes: [(scheme: SecurityScheme, scopes: [String])]
 
-    public init(_ security: Security?, scopes: [String] = []) {
-        if let security = security {
-            self.schemes = [[(security, scopes)]]
+    public init(_ scheme: SecurityScheme?, scopes: [String] = []) {
+        if let scheme = scheme {
+            self.schemes = [(scheme, scopes)]
         } else {
-            self.schemes = [[]] // no security
+            self.schemes = [] // no security
         }
     }
 
-    public init(schemes: [[(security: Security, scopes: [String])]]) {
-        self.schemes = schemes
+    public init(all: [(scheme: SecurityScheme, scopes: [String])]) {
+        self.schemes = all
     }
 
-    public init(all: [(security: Security, scopes: [String])]) {
-        self.schemes = [all]
+    public func makeIterator() -> IndexingIterator<[(scheme: SecurityScheme, scopes: [String])]> {
+        return schemes.makeIterator()
+    }
+}
+
+public struct Security {
+    private let options: [SecurityRequirement]
+
+    public init(_ scheme: SecurityScheme?, scopes: [String] = []) {
+        if let scheme = scheme {
+            self.options = [SecurityRequirement(scheme, scopes: scopes)]
+        } else {
+            self.options = [] // no security
+        }
     }
 
-    public init(any: [(security: Security, scopes: [String])]) {
-        self.schemes = any.map { [$0] }
+    public init(options: [SecurityRequirement]) {
+        self.options = options
+    }
+
+    public init(all: [(scheme: SecurityScheme, scopes: [String])]) {
+        self.options = [SecurityRequirement(all: all)]
+    }
+
+    public init(any: [(scheme: SecurityScheme, scopes: [String])]) {
+        self.options = any.map { SecurityRequirement($0.scheme, scopes: $0.scopes) }
     }
 
     func process(request: HTTPRequest, context: RequestContext) -> SecurityResult {
         var response: ResponseCreating?
         var ctx = context
 
-        for logicalOrSchemes in schemes {
+        for logicalOrSchemes in options {
             var logicalAndResponse: ResponseCreating?
             var logicalAndCtx = context
-            logicalAndLoop: for (security, scopes) in logicalOrSchemes {
-                switch security.process(request: request, context: logicalAndCtx, scopes: scopes) {
+            logicalAndLoop: for (scheme, scopes) in logicalOrSchemes {
+                switch scheme.process(request: request, context: logicalAndCtx, scopes: scopes) {
                 case .proceed(let secureContext):
                     logicalAndCtx = secureContext
                 case .securityResponse(let secureContext, let responseCreator):
@@ -169,7 +189,7 @@ public struct BasicAuth: SecurityProtocol {
 
     let realm: String
     let authorize: Authorize
-    let setContext: Security.SetContext
+    let setContext: SecurityScheme.SetContext
 
     func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult {
         var authorization: Authorization = .unauthorized
@@ -246,14 +266,14 @@ public struct APIKey: SecurityProtocol {
     let name: String
     let location: Location
     let authorize: Authorize
-    let setContext: Security.SetContext
+    let setContext: SecurityScheme.SetContext
 
     public enum Location {
         case query
         case header
     }
 
-    init(name: String, location: Location, authorize: @escaping Authorize, setContext: @escaping Security.SetContext) {
+    init(name: String, location: Location, authorize: @escaping Authorize, setContext: @escaping SecurityScheme.SetContext) {
         self.name = name.lowercased()
         self.location = location
         self.authorize = authorize
@@ -303,7 +323,7 @@ public struct OAuth2: SecurityProtocol {
     let clientSecret: String
 
     let authorize: Authorize
-    let setContext: Security.SetContext
+    let setContext: SecurityScheme.SetContext
 
     func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult {
         let target = URLComponents(string: request.target)!
