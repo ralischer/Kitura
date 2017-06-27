@@ -34,7 +34,7 @@ public class RequestHandlingCoordinator {
         }
 
         if let securityOptions = routeTuple.security {
-            switch securityOptions.security.process(request: proccessedReq, context: processedContext, scopes: securityOptions.scopes) {
+            switch securityOptions.process(request: proccessedReq, context: processedContext) {
             case .proceed(let secureContext):
                 processedContext = secureContext
             case .securityResponse(let secureContext, let responseCreator):

@@ -37,63 +37,64 @@ public enum Authorization {
     case forbidden
 }
 
-public typealias SecurityOptions = (security: Security, scopes: [String])
-
-/*
 public struct SecurityOptions {
-    private let options: [[(security: Security, scopes: [String])]]
+    private let schemes: [[(security: Security, scopes: [String])]]
 
-    public init(security: Security, scopes: [String] = []) {
-        self.options = [[(security, scopes)]]
+    public init(_ security: Security?, scopes: [String] = []) {
+        if let security = security {
+            self.schemes = [[(security, scopes)]]
+        } else {
+            self.schemes = [[]] // no security
+        }
     }
 
-    public init(options: [[(security: Security, scopes: [String])]]) {
-        self.options = options
+    public init(schemes: [[(security: Security, scopes: [String])]]) {
+        self.schemes = schemes
     }
 
     public init(all: [(security: Security, scopes: [String])]) {
-        self.options = [all]
+        self.schemes = [all]
     }
 
     public init(any: [(security: Security, scopes: [String])]) {
-        self.options = any.map { [$0] }
+        self.schemes = any.map { [$0] }
     }
 
     func process(request: HTTPRequest, context: RequestContext) -> SecurityResult {
-        var creator: ResponseCreating?
+        var response: ResponseCreating?
         var ctx = context
 
-        for option in options {
-            var innerCreator: ResponseCreating?
-            var innerCtx = context
-
-            innerLoop: for (security, scopes) in option {
+        for logicalOrSchemes in schemes {
+            var logicalAndResponse: ResponseCreating?
+            var logicalAndCtx = context
+            logicalAndLoop: for (security, scopes) in logicalOrSchemes {
                 switch security.process(request: request, context: ctx, scopes: scopes) {
                 case .proceed(let secureContext):
-                    innerCtx = secureContext
+                    logicalAndCtx = secureContext
                 case .securityResponse(let secureContext, let responseCreator):
-                    innerCtx = secureContext
-                    innerCreator = responseCreator
-                    break innerLoop
+                    logicalAndCtx = secureContext
+                    logicalAndResponse = responseCreator
+                    break logicalAndLoop
                 }
             }
 
-            if innerCreator == nil {
-                return .proceed(innerCtx)
+            if let logicalAndResponse = logicalAndResponse {
+                ctx = logicalAndCtx
+                if response == nil { // process schemes in order
+                    response = logicalAndResponse
+                }
             } else {
-                creator = innerCreator
-                ctx = innerCtx
+                return .proceed(logicalAndCtx)
             }
         }
 
-        if let creator = creator {
-            return .securityResponse(ctx, creator)
+        if let response = response {
+            return .securityResponse(ctx, response)
         } else {
             return .proceed(ctx)
         }
     }
 }
-*/
 
 internal class Session {
     private static let validity: TimeInterval = 1800
