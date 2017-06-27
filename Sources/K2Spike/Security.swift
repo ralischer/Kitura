@@ -68,7 +68,7 @@ public struct SecurityOptions {
             var logicalAndResponse: ResponseCreating?
             var logicalAndCtx = context
             logicalAndLoop: for (security, scopes) in logicalOrSchemes {
-                switch security.process(request: request, context: ctx, scopes: scopes) {
+                switch security.process(request: request, context: logicalAndCtx, scopes: scopes) {
                 case .proceed(let secureContext):
                     logicalAndCtx = secureContext
                 case .securityResponse(let secureContext, let responseCreator):
