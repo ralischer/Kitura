@@ -117,40 +117,44 @@ public struct Router {
         case serveFile(FileServer)
     }
 
-    private var handlers: [Path: (handler: Handler, security: Security?)] = [:]
-    private let security: Security?
+    private var handlers: [Path: (handler: Handler, authorizationVerifier: AuthorizationVerifier)] = [:]
+    private let defaultAuthorizationVerifier: AuthorizationVerifier
 
-    private var fileServer: (path: String, handler: FileServer, security: Security?)?
+    private var fileServer: (path: String, handler: FileServer, authorizationVerifier: AuthorizationVerifier)?
 
-    public init(security: Security? = nil) {
-        self.security = security
+    public init(defaultAuthorizationVerifier: AuthorizationVerifier = .noAuthorization) {
+        self.defaultAuthorizationVerifier = defaultAuthorizationVerifier
     }
 
     // Add a response creator that doesn't require any parameter parsing
-    public mutating func add(verb: Verb, path: String, responseCreator: ResponseCreating, security: Security? = nil) {
-        handlers[Path(path: path, verb: verb)] = (.skipParameters(responseCreator), security)
+    public mutating func add(verb: Verb, path: String, responseCreator: ResponseCreating,
+                             authorizationVerifier: AuthorizationVerifier? = nil) {
+        handlers[Path(path: path, verb: verb)] = (.skipParameters(responseCreator), authorizationVerifier ?? defaultAuthorizationVerifier)
     }
 
     // Add a chunked response creator that requires parameter parsing,
     // excluding the body
-    public mutating func add(verb: Verb, path: String, parameterType: BodylessParameterContaining.Type, responseCreator: BodylessParameterResponseCreating, security: Security? = nil) {
-        handlers[Path(path: path, verb: verb)] = (.skipBody(parameterType, responseCreator), security)
+    public mutating func add(verb: Verb, path: String, parameterType: BodylessParameterContaining.Type, responseCreator: BodylessParameterResponseCreating,
+                             authorizationVerifier: AuthorizationVerifier? = nil) {
+        handlers[Path(path: path, verb: verb)] = (.skipBody(parameterType, responseCreator), authorizationVerifier ?? defaultAuthorizationVerifier)
     }
 
     // Add a stored response creator that requires parameter parsing,
     // including the body
-    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ParameterResponseCreating, security: Security? = nil) {
-        handlers[Path(path: path, verb: verb)] = (.parseBody(parameterType, responseCreator), security)
+    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ParameterResponseCreating,
+                             authorizationVerifier: AuthorizationVerifier? = nil) {
+        handlers[Path(path: path, verb: verb)] = (.parseBody(parameterType, responseCreator), authorizationVerifier ?? defaultAuthorizationVerifier)
     }
 
     // Set a file server that is used when no other defined path match
     // the request URL
-    public mutating func setDefaultFileServer(_ fileServer: FileServer, atPath: String, security: Security? = nil) {
-        self.fileServer = (atPath, fileServer, security)
+    public mutating func setDefaultFileServer(_ fileServer: FileServer, atPath: String,
+                                              authorizationVerifier: AuthorizationVerifier? = nil) {
+        self.fileServer = (atPath, fileServer, authorizationVerifier ?? defaultAuthorizationVerifier)
     }
 
     // Given an HTTPRequest, find the request handler
-    func route(request: HTTPRequest) -> (components: PathComponents?, handler: Handler, security: Security?)? {
+    func route(request: HTTPRequest) -> (components: PathComponents?, handler: Handler, authorizationVerifier: AuthorizationVerifier)? {
         guard let verb = Verb(request.method) else {
             // Unsupported method
             return nil
@@ -160,14 +164,14 @@ public struct Router {
         let exactPath = Path(path: request.target, verb: verb)
 
         if let exactMatch = handlers[exactPath] {
-            return (nil, exactMatch.handler, exactMatch.security ?? security)
+            return (nil, exactMatch.handler, exactMatch.authorizationVerifier)
         }
 
         // Search map of routes for a matching handler
         for (path, match) in handlers {
             if verb == path.verb,
                 let components = URLParameterParser(path: path.path).parse(request.target) {
-                    return (components, match.handler, match.security ?? security)
+                    return (components, match.handler, match.authorizationVerifier)
             }
         }
 
@@ -176,7 +180,7 @@ public struct Router {
         if let fileServer = fileServer,
             let components = URLParameterParser(path: fileServer.path, partialMatch: true).parse(request.target) {
             // File server matches
-            return (components, .serveFile(fileServer.handler), fileServer.security ?? security)
+            return (components, .serveFile(fileServer.handler), fileServer.authorizationVerifier)
         }
 
         return nil

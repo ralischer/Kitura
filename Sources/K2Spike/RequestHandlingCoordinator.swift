@@ -33,13 +33,13 @@ public class RequestHandlingCoordinator {
             return serveWithFailureHandler(request: proccessedReq, context: processedContext, response: res)
         }
 
-        if let securityOptions = routeTuple.security {
-            switch securityOptions.process(request: proccessedReq, context: processedContext) {
-            case .proceed(let secureContext):
-                processedContext = secureContext
-            case .securityResponse(let secureContext, let responseCreator):
-                return responseCreator.serve(request: proccessedReq, context: secureContext, response:runPostProcessors(req: proccessedReq, context: secureContext, res: res))
-            }
+        switch routeTuple.authorizationVerifier.authorize(request: proccessedReq, context: processedContext) {
+        case .proceed(let secureContext):
+            processedContext = secureContext
+        case .redirect(let secureContext, let responseCreator):
+            return responseCreator.serve(request: proccessedReq, context: secureContext, response:runPostProcessors(req: proccessedReq, context: secureContext, res: res))
+        case .responseCreating(let secureContext, let responseCreator):
+            return responseCreator.serve(request: proccessedReq, context: secureContext, response:runPostProcessors(req: proccessedReq, context: secureContext, res: res))
         }
 
         switch routeTuple.handler {

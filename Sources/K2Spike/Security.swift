@@ -3,32 +3,29 @@ import Dispatch
 import SwiftServerHttp
 import LoggerAPI
 
-protocol SecurityProtocol {
-    func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult
-}
-
-public enum SecurityScheme: SecurityProtocol {
+public enum AuthorizationScheme {
     public typealias SetContext = (RequestContext, String) -> RequestContext
 
     case basic(BasicAuth)
     case apiKey(APIKey)
     case oauth2(OAuth2)
 
-    func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult {
+    func authorize(request: HTTPRequest, context: RequestContext, scopes: [String]) -> AuthorizationResult {
         switch(self) {
         case .basic(let basicAuth):
-            return basicAuth.process(request: request, context: context, scopes: scopes)
+            return basicAuth.verifyAuthorization(request: request, context: context, scopes: scopes)
         case .apiKey(let apiKey):
-            return apiKey.process(request: request, context: context, scopes: scopes)
+            return apiKey.verifyAuthorization(request: request, context: context, scopes: scopes)
         case .oauth2(let oauth2):
-            return oauth2.process(request: request, context: context, scopes: scopes)
+            return oauth2.verifyAuthorization(request: request, context: context, scopes: scopes)
         }
     }
 }
 
-enum SecurityResult {
+enum AuthorizationResult {
     case proceed(RequestContext)
-    case securityResponse(RequestContext, ResponseCreating)
+    case redirect(RequestContext, ResponseCreating)
+    case responseCreating(RequestContext, ResponseCreating)
 }
 
 public enum Authorization {
@@ -37,81 +34,60 @@ public enum Authorization {
     case forbidden
 }
 
-public struct SecurityRequirement: Sequence {
-    private let schemes: [(scheme: SecurityScheme, scopes: [String])]
+public enum AuthorizationVerifier {
+    case noAuthorization
+    case verify(scheme: AuthorizationScheme, scopes: [String])
+    case verifyAny([(scheme: AuthorizationScheme, scopes: [String])])
+    case verifyAll([(scheme: AuthorizationScheme, scopes: [String])])
 
-    public init(_ scheme: SecurityScheme?, scopes: [String] = []) {
-        if let scheme = scheme {
-            self.schemes = [(scheme, scopes)]
-        } else {
-            self.schemes = [] // no security
-        }
-    }
-
-    public init(all: [(scheme: SecurityScheme, scopes: [String])]) {
-        self.schemes = all
-    }
-
-    public func makeIterator() -> IndexingIterator<[(scheme: SecurityScheme, scopes: [String])]> {
-        return schemes.makeIterator()
-    }
-}
-
-public struct Security {
-    private let options: [SecurityRequirement]
-
-    public init(_ scheme: SecurityScheme?, scopes: [String] = []) {
-        if let scheme = scheme {
-            self.options = [SecurityRequirement(scheme, scopes: scopes)]
-        } else {
-            self.options = [] // no security
-        }
-    }
-
-    public init(options: [SecurityRequirement]) {
-        self.options = options
-    }
-
-    public init(all: [(scheme: SecurityScheme, scopes: [String])]) {
-        self.options = [SecurityRequirement(all: all)]
-    }
-
-    public init(any: [(scheme: SecurityScheme, scopes: [String])]) {
-        self.options = any.map { SecurityRequirement($0.scheme, scopes: $0.scopes) }
-    }
-
-    func process(request: HTTPRequest, context: RequestContext) -> SecurityResult {
-        var response: ResponseCreating?
-        var ctx = context
-
-        for logicalOrSchemes in options {
-            var logicalAndResponse: ResponseCreating?
-            var logicalAndCtx = context
-            logicalAndLoop: for (scheme, scopes) in logicalOrSchemes {
-                switch scheme.process(request: request, context: logicalAndCtx, scopes: scopes) {
-                case .proceed(let secureContext):
-                    logicalAndCtx = secureContext
-                case .securityResponse(let secureContext, let responseCreator):
-                    logicalAndCtx = secureContext
-                    logicalAndResponse = responseCreator
-                    break logicalAndLoop
+    func authorize(request: HTTPRequest, context: RequestContext) -> AuthorizationResult {
+        switch(self) {
+        case .noAuthorization:
+            return .proceed(context)
+        case .verify(let scheme, let scopes):
+            return scheme.authorize(request: request, context: context, scopes: scopes)
+        case .verifyAny(let schemes):
+            var finalResult: AuthorizationResult?
+            for (scheme, scopes) in schemes {
+                let result = scheme.authorize(request: request, context: context, scopes: scopes)
+                switch result {
+                case .proceed:
+                    return result
+                case .redirect:
+                    finalResult = result
+                case .responseCreating:
+                    if finalResult == nil {
+                        finalResult = result
+                    }
                 }
             }
 
-            if let logicalAndResponse = logicalAndResponse {
-                ctx = logicalAndCtx
-                if response == nil { // process schemes in order
-                    response = logicalAndResponse
-                }
+            if let finalResult = finalResult {
+                return finalResult
             } else {
-                return .proceed(logicalAndCtx)
+                Log.error("empty `any` AuthorizationVerifier for \(request.target)")
+                return .responseCreating(context, AuthorizationResponseCreator(status: .internalServerError, body: "Invalid AuthorizationVerifier"))
             }
-        }
+        case let .verifyAll(schemes):
+            var finalResult: AuthorizationResult?
+            var combinedContext = context
+            for (scheme, scopes) in schemes {
+                let result = scheme.authorize(request: request, context: combinedContext, scopes: scopes)
+                switch result {
+                case .proceed(let newContext):
+                    combinedContext = newContext
+                    finalResult = result
+                default:
+                    return result
+                }
+            }
 
-        if let response = response {
-            return .securityResponse(ctx, response)
-        } else {
-            return .proceed(ctx)
+            if let finalResult = finalResult {
+                return finalResult
+            } else {
+                Log.error("empty `all` AuthorizationVerifier for \(request.target)")
+                return .responseCreating(context, AuthorizationResponseCreator(status: .internalServerError, body: "Invalid AuthorizationVerifier"))
+            }
         }
     }
 }
@@ -164,15 +140,15 @@ internal class Session {
 }
 
 
-public struct BasicAuth: SecurityProtocol {
+public struct BasicAuth {
     public typealias Authorize = (String, String) -> Authorization
 
     let scheme = "Basic"
     let realm: String
     let authorize: Authorize
-    let setContext: SecurityScheme.SetContext
+    let setContext: AuthorizationScheme.SetContext
 
-    func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult {
+    func verifyAuthorization(request: HTTPRequest, context: RequestContext, scopes: [String]) -> AuthorizationResult {
         var authorization: Authorization = .unauthorized
         let authHeader = request.headers["authorization"]
         if !authHeader.isEmpty {
@@ -193,7 +169,7 @@ public struct BasicAuth: SecurityProtocol {
             return .proceed(setContext(context, userInfo))
         default:
             let responseCreator = SimpleAuthResponseCreator(scheme: scheme, realm: realm, authorization: authorization)
-            return .securityResponse(context, responseCreator)
+            return .responseCreating(context, responseCreator)
         }
     }
 }
@@ -241,20 +217,20 @@ class SimpleAuthResponseCreator: ResponseCreating {
     }
 }
 
-public struct APIKey: SecurityProtocol {
+public struct APIKey {
     public typealias Authorize = (String) -> Authorization
 
     let name: String
     let location: Location
     let authorize: Authorize
-    let setContext: SecurityScheme.SetContext
+    let setContext: AuthorizationScheme.SetContext
 
     public enum Location {
         case query
         case header
     }
 
-    func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult {
+    func verifyAuthorization(request: HTTPRequest, context: RequestContext, scopes: [String]) -> AuthorizationResult {
         var apiKey: String?
         switch(location) {
         case .header:
@@ -276,12 +252,12 @@ public struct APIKey: SecurityProtocol {
             return .proceed(setContext(context, userInfo))
         default:
             let responseCreator = SimpleAuthResponseCreator(scheme: "apikey", realm: name, authorization: authorization)
-            return .securityResponse(context, responseCreator)
+            return .responseCreating(context, responseCreator)
         }
     }
 }
 
-public struct OAuth2: SecurityProtocol {
+public struct OAuth2 {
     public typealias UserInfoRequest = (String, String) -> URLRequest
     public typealias Authorize = ([String: Any]) -> Authorization
 
@@ -302,9 +278,9 @@ public struct OAuth2: SecurityProtocol {
     let clientSecret: String
 
     let authorize: Authorize
-    let setContext: SecurityScheme.SetContext
+    let setContext: AuthorizationScheme.SetContext
 
-    func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult {
+    func verifyAuthorization(request: HTTPRequest, context: RequestContext, scopes: [String]) -> AuthorizationResult {
         let target = URLComponents(string: request.target)!
         var headers = HTTPHeaders()
 
@@ -318,12 +294,12 @@ public struct OAuth2: SecurityProtocol {
             let state = target.queryItems?.first(where: { $0.name == "state" })?.value
             guard state == sessionInfo.state else {
                 Log.warning("Invalid state query parameter: \(state ?? "nil") for \(target.path)")
-                return .securityResponse(context, OAuth2ResponseCreator(authorization: .unauthorized, body: "State not set or invalid"))
+                return .responseCreating(context, AuthorizationResponseCreator(status: .unauthorized, body: "State not set or invalid"))
             }
 
             guard let location = sessionInfo.originalTarget, URL(string: location) != nil else {
                 Log.warning("Invalid originalTarget: \(sessionInfo.originalTarget ?? "nil") for \(target.path)")
-                return .securityResponse(context, OAuth2ResponseCreator(authorization: .unauthorized, body: "originalTarget not set or invalid"))
+                return .responseCreating(context, AuthorizationResponseCreator(status: .unauthorized, body: "originalTarget not set or invalid"))
             }
 
             if let location = location.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
@@ -336,7 +312,7 @@ public struct OAuth2: SecurityProtocol {
             guard let code = target.queryItems?.first(where: { $0.name == "code" })?.value else {
                 Log.warning("No code query parameter for \(target.path)")
                 sessionInfo.authorization = .unauthorized
-                return .securityResponse(context, OAuth2ResponseCreator(headers: headers))
+                return .redirect(context, AuthorizationResponseCreator(headers: headers))
             }
 
             let urlSession = URLSession(configuration: URLSessionConfiguration.default)
@@ -358,14 +334,16 @@ public struct OAuth2: SecurityProtocol {
             }
 
             sessionInfo.authorization = authorization
-            return .securityResponse(context, OAuth2ResponseCreator(headers: headers))
+            return .redirect(context, AuthorizationResponseCreator(headers: headers))
         } else {
             if let authorization = sessionInfo.authorization {
                 switch authorization {
                 case .authorized(let userInfo):
                     return .proceed(setContext(context, userInfo))
-                default:
-                    return .securityResponse(context, OAuth2ResponseCreator(authorization: authorization))
+                case .unauthorized:
+                    return .responseCreating(context, AuthorizationResponseCreator(status: .unauthorized))
+                case .forbidden:
+                    return .responseCreating(context, AuthorizationResponseCreator(status: .forbidden))
                 }
             }
 
@@ -377,10 +355,11 @@ public struct OAuth2: SecurityProtocol {
 
             if let location = location.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
                 headers["Location"] = [location]
-                return .securityResponse(context, OAuth2ResponseCreator(headers: headers))
+                return .redirect(context, AuthorizationResponseCreator(headers: headers))
             } else {
                 Log.error("addingPercentEncoding to \(location) failed")
-                return .securityResponse(context, OAuth2ResponseCreator(headers: headers, authorization: .unauthorized, body: "Server error"))
+                headers["Location"] = [location]
+                return .redirect(context, AuthorizationResponseCreator(headers: headers, status: .unauthorized, body: "Server error"))
             }
         }
     }
@@ -448,15 +427,15 @@ public struct OAuth2: SecurityProtocol {
     }
 }
 
-class OAuth2ResponseCreator: ResponseCreating {
+class AuthorizationResponseCreator: ResponseCreating {
     let headers: HTTPHeaders
-    let authorization: Authorization?
-    let body: String?
+    let status: HTTPResponseStatus
+    let body: String
 
-    init(headers: HTTPHeaders = HTTPHeaders(), authorization: Authorization? = nil, body: String? = nil) {
+    init(headers: HTTPHeaders = HTTPHeaders(), status: HTTPResponseStatus = .internalServerError, body: String? = nil) {
         self.headers = headers
-        self.authorization = authorization
-        self.body = body
+        self.status = status
+        self.body = body ?? status.reasonPhrase
     }
 
     public func serve(request: HTTPRequest, context: RequestContext, response: HTTPResponseWriter) -> HTTPBodyProcessing {
@@ -469,21 +448,7 @@ class OAuth2ResponseCreator: ResponseCreating {
             return .discardBody
         }
 
-        let status: HTTPResponseStatus
-        if let authorization = authorization {
-            switch(authorization) {
-            case .unauthorized:
-                status = .unauthorized
-            case .forbidden:
-                status = .forbidden
-            case .authorized:
-                status = .internalServerError
-            }
-        } else {
-            status = .internalServerError
-        }
-
-        let data = body?.data(using: .utf8)
+        let data = body.data(using: .utf8)
         response.writeResponse(HTTPResponse(httpVersion: request.httpVersion,
                                        status: status,
                                        transferEncoding: .identity(contentLength: UInt(data?.count ?? 0)),
