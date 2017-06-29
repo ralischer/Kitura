@@ -55,11 +55,11 @@ class SecurityTests: XCTestCase {
     }
 
     private func testBasicAuth(requestHeaders: HTTPHeaders, expectedStatus: HTTPResponseStatus) {
-        let sessionInfo = UUID().uuidString
+        let userInfo = UUID().uuidString
 
         let authorize: BasicAuth.Authorize = { username, password in
             if username == "foo" {
-                return password == "bar" ? .authorized(sessionInfo: sessionInfo) : .unauthorized
+                return password == "bar" ? .authorized(userInfo: userInfo) : .unauthorized
             } else {
                 return .forbidden
             }
@@ -83,16 +83,16 @@ class SecurityTests: XCTestCase {
 
         if expectedStatus == .ok {
             XCTAssertNotNil(resolver.responseBody)
-            XCTAssertEqual("Hello, \(sessionInfo)!", String(data: resolver.responseBody ?? Data(), encoding: .utf8) ?? "Nil")
+            XCTAssertEqual("Hello, \(userInfo)!", String(data: resolver.responseBody ?? Data(), encoding: .utf8) ?? "Nil")
         }
     }
 
     private func testAPIKey(location: APIKey.Location, requestHeaders: HTTPHeaders?, query: String?, expectedStatus: HTTPResponseStatus) {
-        let sessionInfo = UUID().uuidString
+        let userInfo = UUID().uuidString
 
         let authorize: APIKey.Authorize = { keyValue in
             if keyValue == self.apiKeyValue {
-                return .authorized(sessionInfo: sessionInfo)
+                return .authorized(userInfo: userInfo)
             } else {
                 return .forbidden
             }
@@ -124,7 +124,7 @@ class SecurityTests: XCTestCase {
 
         if expectedStatus == .ok {
             XCTAssertNotNil(resolver.responseBody)
-            XCTAssertEqual("Hello, \(sessionInfo)!", String(data: resolver.responseBody ?? Data(), encoding: .utf8) ?? "Nil")
+            XCTAssertEqual("Hello, \(userInfo)!", String(data: resolver.responseBody ?? Data(), encoding: .utf8) ?? "Nil")
         }
     }
 
@@ -163,14 +163,14 @@ class SecurityTests: XCTestCase {
                 return request
             }
 
-            let sessionInfo = UUID().uuidString
+            let userInfo = UUID().uuidString
             let redirectPath = "/oauth2/callback"
             let scopes = ["email", "phone", "id"]
             let redirectUrl = URL(string: "http://localhost" + redirectPath)!
 
             let authorize: OAuth2.Authorize = { json in
                 if json[provider.userInfoKey] as? String == provider.userInfo {
-                    return .authorized(sessionInfo: sessionInfo)
+                    return .authorized(userInfo: userInfo)
                 } else {
                     return .forbidden
                 }
@@ -232,7 +232,7 @@ class SecurityTests: XCTestCase {
 
             if tokenOk && userInfoOk {
                 XCTAssertEqual(HTTPResponseStatus.ok.code, resolver.response?.status.code ?? 0)
-                XCTAssertEqual("Hello, \(sessionInfo)!", String(data: resolver.responseBody ?? Data(), encoding: .utf8) ?? "Nil")
+                XCTAssertEqual("Hello, \(userInfo)!", String(data: resolver.responseBody ?? Data(), encoding: .utf8) ?? "Nil")
             } else {
                 XCTAssertEqual(HTTPResponseStatus.unauthorized.code, resolver.response?.status.code ?? 0)
             }

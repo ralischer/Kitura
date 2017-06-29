@@ -32,7 +32,7 @@ enum SecurityResult {
 }
 
 public enum Authorization {
-    case authorized(sessionInfo: String)
+    case authorized(userInfo: String)
     case unauthorized
     case forbidden
 }
@@ -117,69 +117,49 @@ public struct Security {
 }
 
 internal class Session {
-    private static let validity: TimeInterval = 1800
+    private static let defaultValidity: TimeInterval = 1800
     private static let cookieName = "kitura_session"
+    private static var sessions = [String: [String: Session]]()
 
-    private static var storage = [String: [String: (info: String, expires: Date)]]()
+    var validity = defaultValidity
+    private var expires = Date(timeIntervalSinceNow: defaultValidity)
 
-    private static func getCookies(_ request: HTTPRequest) -> [String: String] {
-        var cookies = [String: String]()
+    var sessionInfo: Any? {
+        didSet {
+            expires = Date(timeIntervalSinceNow: validity)
+        }
+    }
+
+    static func getSession(_ request: HTTPRequest, applicationId: String, responseHeaders: inout HTTPHeaders) -> Session {
+        var sessionId: String?
         if let cookieHeader = request.headers["cookie"].first {
             for cookie in cookieHeader.components(separatedBy: ";") {
                 guard let range = cookie.range(of: "=") else {
                     continue
                 }
-                let name = cookie.substring(to: range.lowerBound).trimmingCharacters(in: .whitespaces)
-                let value = cookie.substring(from: range.upperBound)
-                cookies[name] = value
+                if cookieName == cookie.substring(to: range.lowerBound).trimmingCharacters(in: .whitespaces) {
+                    sessionId = cookie.substring(from: range.upperBound)
+                    break
+                }
             }
         }
-        return cookies
-    }
 
-    private static func getSession(_ request: HTTPRequest) -> (id: String, isNew: Bool) {
-        if let cookieValue = getCookies(request)[cookieName] {
-            return (cookieValue, false)
+        if let sessionId = sessionId, var userSessions = sessions[sessionId] {
+            if let session = userSessions[applicationId], session.expires.timeIntervalSinceNow > 0 {
+                return session
+            } else {
+                let session = Session()
+                userSessions[applicationId] = session
+                sessions[sessionId] = userSessions
+                return session
+            }
         }
-        return (UUID().uuidString, true)
-    }
 
-    @discardableResult
-    static func store(uuid: String, info: String, request: HTTPRequest, expires: TimeInterval?, responseHeaders: inout HTTPHeaders) -> String {
-        let session = getSession(request)
-        var data = storage[session.id] ?? [String: (String, Date)]()
-
-        data[uuid] = (info, Date(timeIntervalSinceNow: expires ?? validity))
-        storage[session.id] = data
-
-        if session.isNew {
-            responseHeaders["Set-Cookie"] = ["\(cookieName)=\(session.id); Path=/"]
-        }
-        return session.id
-    }
-
-    static func retrieve(uuid: String, request: HTTPRequest) -> String? {
-        let session = getSession(request)
-        guard !session.isNew else {
-            return nil
-        }
-        guard let value = storage[session.id]?[uuid] else {
-            return nil
-        }
-        guard value.expires.timeIntervalSinceNow > 0 else {
-            storage.removeValue(forKey: session.id)
-            return nil
-        }
-        return value.info
-    }
-
-    @discardableResult
-    static func remove(uuid: String, request: HTTPRequest, sessionId: String? = nil) -> String? {
-        if let sessionId = sessionId {
-            return storage[sessionId]?.removeValue(forKey: uuid)?.info
-        }
-        let session = getSession(request)
-        return storage[session.id]?.removeValue(forKey: uuid)?.info
+        let newSession = Session()
+        let newSessionId = UUID().uuidString
+        sessions[newSessionId] = [applicationId: newSession]
+        responseHeaders["Set-Cookie"] = ["\(cookieName)=\(newSessionId); Path=/"]
+        return newSession
     }
 }
 
@@ -187,6 +167,7 @@ internal class Session {
 public struct BasicAuth: SecurityProtocol {
     public typealias Authorize = (String, String) -> Authorization
 
+    let scheme = "Basic"
     let realm: String
     let authorize: Authorize
     let setContext: SecurityScheme.SetContext
@@ -195,8 +176,8 @@ public struct BasicAuth: SecurityProtocol {
         var authorization: Authorization = .unauthorized
         let authHeader = request.headers["authorization"]
         if !authHeader.isEmpty {
-            let components = authHeader[0].components(separatedBy: " ")
-            if components.count >= 2 {
+            let components = authHeader[0].characters.split(separator: " ", maxSplits: 1).map(String.init)
+            if components.count == 2, components[0] == scheme {
                 if let data = Data(base64Encoded: components[1]), let decodedAuth = String(data: data, encoding: .utf8) {
                     if let range = decodedAuth.range(of: ":") {
                         let username = decodedAuth.substring(to: range.lowerBound)
@@ -208,10 +189,10 @@ public struct BasicAuth: SecurityProtocol {
         }
 
         switch authorization {
-        case .authorized(let sessionInfo):
-            return .proceed(setContext(context, sessionInfo))
+        case .authorized(let userInfo):
+            return .proceed(setContext(context, userInfo))
         default:
-            let responseCreator = SimpleAuthResponseCreator(scheme: "Basic", realm: realm, authorization: authorization)
+            let responseCreator = SimpleAuthResponseCreator(scheme: scheme, realm: realm, authorization: authorization)
             return .securityResponse(context, responseCreator)
         }
     }
@@ -222,9 +203,9 @@ class SimpleAuthResponseCreator: ResponseCreating {
     let realm: String
     let authorization: Authorization
 
-    init(scheme: String, realm: String?, authorization: Authorization) {
+    init(scheme: String, realm: String, authorization: Authorization) {
         self.scheme = scheme
-        self.realm = realm ?? "Unknown"
+        self.realm = realm
         self.authorization = authorization
     }
 
@@ -273,13 +254,6 @@ public struct APIKey: SecurityProtocol {
         case header
     }
 
-    init(name: String, location: Location, authorize: @escaping Authorize, setContext: @escaping SecurityScheme.SetContext) {
-        self.name = name.lowercased()
-        self.location = location
-        self.authorize = authorize
-        self.setContext = setContext
-    }
-
     func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult {
         var apiKey: String?
         switch(location) {
@@ -287,7 +261,7 @@ public struct APIKey: SecurityProtocol {
             apiKey = request.headers[name].first
         case .query:
             if let queryItems = URLComponents(string: request.target)?.queryItems,
-                let match = queryItems.first(where: { $0.name.lowercased() == name }) {
+                let match = queryItems.first(where: { $0.name == name }) {
                     apiKey = match.value
             }
         }
@@ -298,8 +272,8 @@ public struct APIKey: SecurityProtocol {
         }
 
         switch authorization {
-        case .authorized(let sessionInfo):
-            return .proceed(setContext(context, sessionInfo))
+        case .authorized(let userInfo):
+            return .proceed(setContext(context, userInfo))
         default:
             let responseCreator = SimpleAuthResponseCreator(scheme: "apikey", realm: name, authorization: authorization)
             return .securityResponse(context, responseCreator)
@@ -311,8 +285,13 @@ public struct OAuth2: SecurityProtocol {
     public typealias UserInfoRequest = (String, String) -> URLRequest
     public typealias Authorize = ([String: Any]) -> Authorization
 
-    let authorizedId = UUID().uuidString
-    let unauthorizedId = UUID().uuidString
+    private struct SessionInfo {
+        var authorization: Authorization?
+        var state: String?
+        var originalTarget: String?
+    }
+
+    let applicationId = UUID().uuidString
 
     let authorizationUrl: URL
     let redirectUrl: URL
@@ -327,24 +306,36 @@ public struct OAuth2: SecurityProtocol {
 
     func process(request: HTTPRequest, context: RequestContext, scopes: [String]) -> SecurityResult {
         let target = URLComponents(string: request.target)!
-        if redirectUrl.path == target.path { // called back after call to authorizationUrl
-            let state: String?
-            if let stateId = target.queryItems?.first(where: { $0.name == "state" })?.value {
-                state = Session.retrieve(uuid: stateId, request: request)
-            } else {
-                state = nil
-            }
+        var headers = HTTPHeaders()
 
-            guard let location = state, URL(string: location) != nil else {
+        let session = Session.getSession(request, applicationId: applicationId, responseHeaders: &headers)
+        var sessionInfo = session.sessionInfo as? SessionInfo ?? SessionInfo()
+        defer {
+            session.sessionInfo = sessionInfo
+        }
+
+        if redirectUrl.path == target.path { // called back after call to authorizationUrl
+            let state = target.queryItems?.first(where: { $0.name == "state" })?.value
+            guard state == sessionInfo.state else {
                 Log.warning("Invalid state query parameter: \(state ?? "nil") for \(target.path)")
                 return .securityResponse(context, OAuth2ResponseCreator(authorization: .unauthorized, body: "State not set or invalid"))
             }
 
+            guard let location = sessionInfo.originalTarget, URL(string: location) != nil else {
+                Log.warning("Invalid originalTarget: \(sessionInfo.originalTarget ?? "nil") for \(target.path)")
+                return .securityResponse(context, OAuth2ResponseCreator(authorization: .unauthorized, body: "originalTarget not set or invalid"))
+            }
+
+            if let location = location.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                headers["Location"] = [location]
+            } else {
+                Log.error("addingPercentEncoding to \(location) failed")
+                headers["Location"] = [location]
+            }
+
             guard let code = target.queryItems?.first(where: { $0.name == "code" })?.value else {
                 Log.warning("No code query parameter for \(target.path)")
-                var headers = HTTPHeaders([("Location", location)])
-                Session.store(uuid: unauthorizedId, info: "Authorization code not set",
-                                              request: request, expires: 600, responseHeaders: &headers)
+                sessionInfo.authorization = .unauthorized
                 return .securityResponse(context, OAuth2ResponseCreator(headers: headers))
             }
 
@@ -354,10 +345,10 @@ public struct OAuth2: SecurityProtocol {
             var token = getToken(tokenUrl: tokenUrl, redirectUrl: redirectUrl, authCode: code, urlSession: urlSession, taskComplete: taskComplete)
 
             let userInfo: [String: Any]?
-            if let accessToken = token?["access_token"] as? String, let tokenType = token?["token_type"] as? String {
+            if let accessToken = token["access_token"] as? String, let tokenType = token["token_type"] as? String {
                 userInfo = getUserInfo(userInfoRequest: userInfoRequest, token: accessToken, tokenType: tokenType, urlSession: urlSession, taskComplete: taskComplete)
             } else {
-                Log.warning("access_token or token_type unavailable in \(token ?? [:])")
+                Log.warning("access_token or token_type unavailable in \(token)")
                 userInfo = nil
             }
 
@@ -366,45 +357,23 @@ public struct OAuth2: SecurityProtocol {
                 authorization = authorize(userInfo)
             }
 
-            var headers = HTTPHeaders()
-            if let location = location.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-                headers["Location"] = [location]
-            } else {
-                Log.error("addingPercentEncoding to \(location) failed")
-                headers["Location"] = [location]
-            }
-
-            switch authorization {
-            case .authorized(let sessionInfo):
-                let sessionId = Session.store(uuid: authorizedId, info: sessionInfo, request: request,
-                                           expires: token?["expires_in"] as? TimeInterval, responseHeaders: &headers)
-
-                // remove any prior unauthorized session info
-                Session.remove(uuid: unauthorizedId, request: request, sessionId: sessionId)
-                return .securityResponse(context, OAuth2ResponseCreator(headers: headers))
-            default:
-                let sessionId = Session.store(uuid: unauthorizedId, info: String(describing: authorization) + ": Authorization failed",
-                                           request: request, expires: 600, responseHeaders: &headers)
-
-                // remove any prior authorized session info
-                Session.remove(uuid: authorizedId, request: request, sessionId: sessionId)
-
-                return .securityResponse(context, OAuth2ResponseCreator(headers: headers))
-            }
+            sessionInfo.authorization = authorization
+            return .securityResponse(context, OAuth2ResponseCreator(headers: headers))
         } else {
-            if let sessionInfo = Session.retrieve(uuid: authorizedId, request: request) {
-                return .proceed(setContext(context, sessionInfo))
-            }
-            if let unauthorizedInfo = Session.retrieve(uuid: unauthorizedId, request: request) {
-                return .securityResponse(context, OAuth2ResponseCreator(authorization: .unauthorized, body: unauthorizedInfo))
+            if let authorization = sessionInfo.authorization {
+                switch authorization {
+                case .authorized(let userInfo):
+                    return .proceed(setContext(context, userInfo))
+                default:
+                    return .securityResponse(context, OAuth2ResponseCreator(authorization: authorization))
+                }
             }
 
             let scopeList = scopes.joined(separator: " ")
-            let stateId = UUID().uuidString
-
-            var headers = HTTPHeaders()
-            Session.store(uuid: stateId, info: request.target, request: request, expires: 300, responseHeaders: &headers)
-            let location = "\(authorizationUrl.absoluteString)?response_type=code&client_id=\(clientId)&redirect_uri=\(redirectUrl.absoluteString)&scope=\(scopeList)&state=\(stateId)"
+            let state = UUID().uuidString
+            sessionInfo.state = state
+            sessionInfo.originalTarget = request.target
+            let location = "\(authorizationUrl.absoluteString)?response_type=code&client_id=\(clientId)&redirect_uri=\(redirectUrl.absoluteString)&scope=\(scopeList)&state=\(state)"
 
             if let location = location.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
                 headers["Location"] = [location]
@@ -416,7 +385,7 @@ public struct OAuth2: SecurityProtocol {
         }
     }
 
-    private func getToken(tokenUrl: URL, redirectUrl: URL, authCode: String, urlSession: URLSession, taskComplete: DispatchSemaphore) -> [String: Any]? {
+    private func getToken(tokenUrl: URL, redirectUrl: URL, authCode: String, urlSession: URLSession, taskComplete: DispatchSemaphore) -> [String: Any] {
         var request = URLRequest(url: tokenUrl)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -424,7 +393,7 @@ public struct OAuth2: SecurityProtocol {
         let requestBody = "grant_type=authorization_code&code=\(authCode)&client_id=\(clientId)&client_secret=\(clientSecret)&redirect_uri=\(redirectUrl.absoluteString)"
         request.httpBody = requestBody.data(using: .utf8)
 
-        var json: [String: Any]?
+        var token = [String: Any]()
         var body: String?
         let task = urlSession.dataTask(with: request) { (responseBody, rawResponse, error) in
             defer {
@@ -434,7 +403,9 @@ public struct OAuth2: SecurityProtocol {
             if response?.statusCode == Int(HTTPResponseStatus.ok.code), let responseBody = responseBody {
                 do {
                     body = String(describing: responseBody)
-                    json = try JSONSerialization.jsonObject(with: responseBody, options: []) as? [String: Any]
+                    if let json = try JSONSerialization.jsonObject(with: responseBody, options: []) as? [String: Any] {
+                        token = json
+                    }
                 } catch {
                     Log.error("Error in token json: \(error)")
                 }
@@ -445,7 +416,7 @@ public struct OAuth2: SecurityProtocol {
 
         task.resume()
         taskComplete.wait()
-        return json
+        return token
     }
 
     private func getUserInfo(userInfoRequest: UserInfoRequest, token: String, tokenType: String, urlSession: URLSession, taskComplete: DispatchSemaphore) -> [String: Any]? {
@@ -482,8 +453,8 @@ class OAuth2ResponseCreator: ResponseCreating {
     let authorization: Authorization?
     let body: String?
 
-    init(headers: HTTPHeaders? = nil, authorization: Authorization? = nil, body: String? = nil) {
-        self.headers = headers ?? HTTPHeaders()
+    init(headers: HTTPHeaders = HTTPHeaders(), authorization: Authorization? = nil, body: String? = nil) {
+        self.headers = headers
         self.authorization = authorization
         self.body = body
     }
