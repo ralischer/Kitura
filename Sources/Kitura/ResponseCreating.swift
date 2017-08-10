@@ -7,11 +7,13 @@ public protocol ResponseCreating {
 }
 
 public protocol BodylessParameterResponseCreating {
-    func serve(request: HTTPRequest, context: RequestContext, parameters: BodylessParameterContaining, response: HTTPResponseWriter) -> HTTPBodyProcessing
+    associatedtype Parameters: BodylessParameterContaining
+    func serve(request: HTTPRequest, context: RequestContext, parameters: Parameters, response: HTTPResponseWriter) -> HTTPBodyProcessing
 }
 
 public protocol ParameterResponseCreating {
-    func serve(request: HTTPRequest, context: RequestContext, parameters: ParameterContaining, response: HTTPResponseWriter) -> (status: HTTPResponseStatus, headers:HTTPHeaders, responseBody: ResponseObject)
+    associatedtype Parameters: ParameterContaining
+    func serve(request: HTTPRequest, context: RequestContext, parameters: Parameters, response: HTTPResponseWriter) -> (status: HTTPResponseStatus, headers:HTTPHeaders, responseBody: ResponseObject)
 }
 
 public protocol FileResponseCreating {

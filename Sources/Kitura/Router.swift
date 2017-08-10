@@ -111,9 +111,9 @@ struct URLParameterParser {
 public struct Router {
     // Enum wrapper around parameter type and corresponding response creator
     enum Handler {
-        case parseBody(ParameterContaining.Type, ParameterResponseCreating)
+        case parseBody(ParameterResponseCreating)
         case skipParameters(ResponseCreating)
-        case skipBody(BodylessParameterContaining.Type, BodylessParameterResponseCreating)
+        case skipBody(BodylessParameterResponseCreating)
         case serveFile(FileServer)
     }
 
@@ -130,14 +130,14 @@ public struct Router {
 
     // Add a chunked response creator that requires parameter parsing,
     // excluding the body
-    public mutating func add(verb: Verb, path: String, parameterType: BodylessParameterContaining.Type, responseCreator: BodylessParameterResponseCreating) {
-        handlers[Path(path: path, verb: verb)] = .skipBody(parameterType, responseCreator)
+    public mutating func add<ResponseCreator: BodylessParameterResponseCreating>(verb: Verb, path: String, responseCreator: ResponseCreator) {
+        handlers[Path(path: path, verb: verb)] = .skipBody(responseCreator)
     }
 
     // Add a stored response creator that requires parameter parsing,
     // including the body
-    public mutating func add(verb: Verb, path: String, parameterType: ParameterContaining.Type, responseCreator: ParameterResponseCreating) {
-        handlers[Path(path: path, verb: verb)] = .parseBody(parameterType, responseCreator)
+    public mutating func add<ResponseCreator: ParameterResponseCreating>(verb: Verb, path: String, responseCreator: ResponseCreator) {
+        handlers[Path(path: path, verb: verb)] = .parseBody(responseCreator)
     }
 
     // Set a file server that is used when no other defined path match

@@ -38,17 +38,17 @@ public class RequestHandlingCoordinator {
             // No parameter parsing needed
             // Serve content
             return responseCreator.serve(request: proccessedReq, context: processedContext, response:runPostProcessors(req: proccessedReq, context: processedContext, res: res))
-        case .skipBody(let parameterType, let responseCreator):
+        case .skipBody(let responseCreator):
             // Step 1:
             // Generate parameter object
-            guard let parameters = parameterType.init(pathParameters: routeTuple.components?.parameters, queryParameters: routeTuple.components?.queries, headers: proccessedReq.headers) else {
+            guard let parameters = type(of: responseCreator).Parameters.init(pathParameters: routeTuple.components?.parameters, queryParameters: routeTuple.components?.queries, headers: proccessedReq.headers) else {
                 return serveWithFailureHandler(request: proccessedReq, context: processedContext, response: res)
             }
 
             // Step 2:
             // Serve content using parameters
             return responseCreator.serve(request: proccessedReq, context: processedContext, parameters: parameters, response: runPostProcessors(req: proccessedReq, context: processedContext, res: res))
-        case .parseBody(let parameterType, let responseCreator):
+        case .parseBody(let responseCreator):
             var body = DispatchData.empty
 
             // Have to parse body parameters
@@ -65,7 +65,7 @@ public class RequestHandlingCoordinator {
                 case .end:
                     // Step 2:
                     // Generate parameter object
-                    if let parameters = parameterType.init(pathParameters: routeTuple.components?.parameters, queryParameters: routeTuple.components?.queries, headers: proccessedReq.headers, body: body) {
+                    if let parameters = type(of: responseCreator).Parameters.init(pathParameters: routeTuple.components?.parameters, queryParameters: routeTuple.components?.queries, headers: proccessedReq.headers, body: body) {
                         // Step 3:
                         // Get response object from serving content using parameters
                         let (status, headers, responseObject) = responseCreator.serve(request: proccessedReq, context: processedContext, parameters: parameters, response: res)
