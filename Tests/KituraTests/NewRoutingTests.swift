@@ -5,13 +5,12 @@ import XCTest
 
 class NewRoutingTests: XCTestCase {
     func testEcho() {
-        let testString="This is a test"
+        let testString = "This is a test"
         let request = HTTPRequest(method: .post, target:"/echo", httpVersion: HTTPVersion(major: 1,minor: 1), headers: HTTPHeaders())
         let resolver = TestResponseResolver(request: request, requestBody: testString.data(using: .utf8)!)
-        var router = Router2()
-        router.add(verb: .POST, path: "/echo", delegate: Echoer())
-        let coordinator = RouteDispatcher(router: router)
-        resolver.resolveHandler(coordinator.handle)
+        var webApp = RoutingWebApp()
+        webApp.add(verb: .POST, path: "/echo", handler: Echoer())
+        resolver.resolveHandler(webApp.handle)
 
         XCTAssertNotNil(resolver.response)
         XCTAssertNotNil(resolver.responseBody)
@@ -20,11 +19,10 @@ class NewRoutingTests: XCTestCase {
     }
 }
 
-class Echoer: ProcessingDelegate {
-    func process(_ input: (request: HTTPRequest, response: HTTPResponseWriter)) -> HTTPBodyProcessing {
-        let (_, response) = input
-
+class Echoer: RouteHandler {
+    func process(request: HTTPRequestContext, response: HTTPResponseWriter) -> HTTPBodyProcessing {
         response.writeHeader(status: .ok, headers: [.transferEncoding: "chunked"])
+
         return .processBody { (chunk, stop) in
             switch chunk {
             case .chunk(let data, let finishedProcessing):
